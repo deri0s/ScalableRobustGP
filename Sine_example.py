@@ -19,8 +19,8 @@ y = np.zeros(N)
 # Noise structure
 std1 = 0.1
 std2 = 1
-pi1 = 0.7
-pi2 = 1 - 0.7
+pi1 = 0.9
+pi2 = 1 - pi1
 
 # proportionalities vector
 u = prob.uniform(0,1,N)
@@ -42,55 +42,56 @@ kernel = se + wn
 # training
 N_GPs = 5
 model = DDPGP(x, y, N_GPs=N_GPs, init_K=7, kernel=kernel, normalise_y=True)
-model.train()
+model.train(pseudo_sparse=True)
 
 # predictions
 mu, std, betas = model.predict(x)
 
+"""
+Compare with DGP
+"""
+dgp = DGP(x, y, N_GPs=N_GPs, kernel=kernel)
+muGP, stdGP, betasGP = dgp.predict(x)
+
 ### CALCULATING THE OVERALL MSE
 from sklearn.metrics import mean_squared_error
+print("Mean Squared Error (DGP)     : ", mean_squared_error(muGP, f))
 print("Mean Squared Error (DDPGP)   : ", mean_squared_error(mu, f))
 
-##############################################################################
-# Plot beta
-##############################################################################
-# c = ['red', 'orange', 'blue', 'black', 'green', 'cyan', 'darkred', 'pink',
-#      'gray', 'magenta','lightgreen', 'darkblue', 'yellow']
+#-----------------------------------------------------------------------------
+# EXPERTS PREDICTIVE CONTRIBUTION
+#-----------------------------------------------------------------------------
 
-# fig, ax = plt.subplots()
-# fig.autofmt_xdate()
-# step = int(len(xNew)/N_GPs)
-# advance = 0
-# for k in range(N_GPs):
-#     plt.axvline(xNew[int(advance)], linestyle='--', linewidth=3,
-#                 color='black')
-#     ax.plot(xNew, betas[:,k], color=c[k], linewidth=2,
-#             label='Beta: '+str(k))
-#     advance += step
-
-# ax.set_xlabel('Date-time')
-# ax.set_ylabel('Predictive contribution')
-
-
-# ## Print results for the DP-GP model
-# print('\n MODEL PARAMETERS EM-GP (with normalisation): \n')
-# print(' Number of components identified, K = ', rgp.K_opt)
-# print('Proportionalities: ', rgp.pies)
-# print('Noise Stds: ', rgp.stds)
-# print('Hyperparameters: ', rgp.hyperparameters)
-
-
-plt.figure()
+fig, ax = plt.subplots()
+fig.autofmt_xdate()
 step = int(len(x)/N_GPs)
 advance = 0
 for k in range(N_GPs):
     plt.axvline(x[int(advance)], linestyle='--', linewidth=3,
-                color='lime')
+                color='grey')
+    ax.plot(x, betas[:,k], color=model.c[k], linewidth=2,
+            label='Beta: '+str(k))
     advance += step
-    
-plt.plot(x, f, color='black', linewidth = 4, label='Sine function')
-plt.plot(x, mu, color='red', linewidth = 4,
-          label='DDPGP')
+
+ax.set_xlabel('Date-time')
+ax.set_ylabel('Predictive contribution')
+
+#-----------------------------------------------------------------------------
+# REGRESSION PLOT
+#-----------------------------------------------------------------------------
+
+plt.figure()
+advance = 0
+for k in range(N_GPs):
+    plt.axvline(x[int(advance)], linestyle='--', linewidth=3,
+                color='lightgrey')
+    advance += step
+
+plt.plot(x, y, '*', color='grey', linewidth = 4,
+         label='Noisy data')    
+plt.plot(x, f, color='black', linewidth = 4,    label='Sine function')
+plt.plot(x, muGP, color='red', linewidth = 4,label='DGP')
+plt.plot(x, mu, color='limegreen', linewidth = 4,     label='DDPGP')
 plt.title('Regression Performance', fontsize=20)
 plt.xlabel('x', fontsize=16)
 plt.ylabel('f(x)', fontsize=16)

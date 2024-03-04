@@ -1,5 +1,8 @@
+from pathlib import Path
+import yaml
 import numpy as np
 import matplotlib.pyplot as plt
+from sklearn.preprocessing import MinMaxScaler
 from sklearn.gaussian_process import GaussianProcessRegressor as GPR
 
 """
@@ -12,7 +15,7 @@ Diego Echeverria
 
 class DistributedGP(GPR):
 
-    def __init__(self, X, Y, N_GPs, kernel):
+    def __init__(self, X, Y, N_GPs, kernel, plot_expert_pred=False):
         """
             Initialise objects, variables and parameters
         """
@@ -34,6 +37,36 @@ class DistributedGP(GPR):
         self.X_split = np.array_split(self.X, N_GPs)
         self.Y_split = np.array_split(self.Y, N_GPs)
 
+                # Array of colors to use in the plots (max 200 colors)
+        FILE = Path(__file__).resolve()
+        colors_path_name = FILE.parents[0] / 'colors.yml'
+
+        with open(colors_path_name, 'r') as f:
+            colors_dict = yaml.safe_load(f)
+            self.c = colors_dict['color']
+        
+        # Plot option only available for N-GPs <= 200
+        self.plot_expert_pred = plot_expert_pred
+        if self.plot_expert_pred:
+            if self.N_GPs > 200:
+                assert False, 'Experts predictions can only be plotted for N_GP <= 200'
+
+    def plot_expert(self, X_test, mu_all):
+        # Plot the predictions of each expert
+        plt.figure()
+        plt.title('Expert predictions at each region')
+        advance = 0
+        step = int(len(X_test)/self.N_GPs)
+        # draw a line dividing training and test data
+        # plt.axvline(self.N + step, linestyle='--', linewidth=3, color='red',
+        #             label='-> test data')
+        for i in range(self.N_GPs):
+            plt.plot(mu_all[:, i], color=self.c[i], label='DPGP('+str(i)+')')
+            plt.axvline(int(advance), linestyle='--', linewidth=3,
+                        color='black')
+            advance += step
+        plt.legend()
+
 
     def predict(self, X_star):
         """
@@ -51,6 +84,8 @@ class DistributedGP(GPR):
             beta : [N_star x N_GPs] predictive power of each expert
         """
         
+        X_star = np.vstack(X_star)
+
         # Train GP experts
         gps = []
         for m in range(self.N_GPs):
@@ -98,43 +133,39 @@ class DistributedGP(GPR):
         else:
             for i in range(self.N_GPs):
                 mu, sigma = self.gps[i].predict(X_star, return_std=True)
-                mu_all[:, i] = mu[:, 0]
+                mu_all[:, i] = mu
                 sigma_all[:, i] = sigma
 
-        # Calculate the normalised predictive power of the predictions made
-        # by each GP. Note that here we are assuming that k(x_star, x_star)=1
-        # to simplify the calculation.
-        beta = np.zeros([N_star, self.N_GPs])
-        prior_vars = np.zeros(self.N_GPs)
+# Calculate the normalised predictive power of the predictions made
+        # by each GP. Note that, we are assuming that k(x_star, x_star)=1
+        betas = np.zeros([N_star, self.N_GPs])
+        # Add Jitter term to prevent numeric error
+        prior_std = 1 + 1e-6
+        # betas
         for i in range(self.N_GPs):
-            # Add Jitter term to prevent numeric error
-            print('\n \n Que es theta-1 DGP: ', self.gps[i].kernel_.theta[-1])
-            prior_var = 1 + np.exp(self.gps[i].kernel_.theta[-1]) + 1e-8
-            beta[:, i] = 0.5*(np.log(prior_var) - np.log(sigma_all[:, i])**2)
-            prior_vars[i] = prior_var
+            betas[:, i] = 0.5*(np.log(prior_std) - np.log(sigma_all[:, i]**2))
 
-        # Normalise beta
-        for i in range(N_star):
-            beta[i, :] = beta[i, :] / np.sum(beta[i, :])
+        # Normalise betas
+        scaler = MinMaxScaler(feature_range=(0,1))
+        betas = scaler.fit_transform(betas)
 
-        # Compute the rBCM precision
+        # Compute the gPoE precision
         prec_star = np.zeros(N_star)
         for i in range(self.N_GPs):
-            prec_star += (beta[:, i] * sigma_all[:, i]**-2
-                          + (1./self.N_GPs - beta[:,i])*prior_vars[i]**(-1))
+            prec_star += betas[:, i] * sigma_all[:, i]**-2
 
-        # Compute the rBCM predictive variance and standard deviation
+        # Compute the gPoE predictive variance and standard deviation
         var_star = prec_star**-1
         std_star = var_star**0.5
 
-        # Compute the rBCM predictive mean
+        # Compute the gPoE predictive mean
         mu_star = np.zeros(N_star)
         for i in range(self.N_GPs):
-            mu_star += beta[:, i] * sigma_all[:, i]**-2 * mu_all[:, i]
+            mu_star += betas[:, i] * sigma_all[:, i]**-2 * mu_all[:, i]
         mu_star *= var_star
-        
-        # Return estimated hyperparameters
-        self.opt_sigma = np.mean(std_star)
-        self.opt_thetas = np.exp(self.gps[i].kernel_.theta)
 
-        return np.vstack(mu_star), np.vstack(std_star), np.vstack(beta)
+        # plot if specified
+        if self.plot_expert_pred:
+            self.plot_expert(X_star, mu_all)
+
+        return mu_star, std_star, np.vstack(betas)

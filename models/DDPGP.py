@@ -108,15 +108,15 @@ class DistributedDPGP(GPR):
         """
         Description
         -----------
-            Prediction tasks for the rBCM model
+            Prediction tasks for the gPoE model
         Parameters
         ----------
             X_star : numpy array of new inputs
             N_star : no. new inputs
         Returns
         -------
-            mu_star : vector of the rBCM predicitve mean values
-            sigma_star : vector of the rBCM predicitve std values
+            mu_star : vector of the gPoE predicitve mean values
+            sigma_star : vector of the gPoE predicitve std values
             beta : [N_star x N_GPs] predictive power of each expert
         """
         
@@ -164,16 +164,16 @@ class DistributedDPGP(GPR):
         scaler = MinMaxScaler(feature_range=(0,1))
         betas = scaler.fit_transform(betas)
 
-        # Compute the rBCM precision
+        # Compute the gPoE precision
         prec_star = np.zeros(N_star)
         for i in range(self.N_GPs):
             prec_star += betas[:, i] * sigma_all[:, i]**-2
 
-        # Compute the rBCM predictive variance and standard deviation
+        # Compute the gPoE predictive variance and standard deviation
         var_star = prec_star**-1
         std_star = var_star**0.5
 
-        # Compute the rBCM predictive mean
+        # Compute the gPoE predictive mean
         mu_star = np.zeros(N_star)
         for i in range(self.N_GPs):
             mu_star += betas[:, i] * sigma_all[:, i]**-2 * mu_all[:, i]
