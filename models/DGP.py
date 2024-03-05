@@ -136,7 +136,7 @@ class DistributedGP(GPR):
                 mu_all[:, i] = mu
                 sigma_all[:, i] = sigma
 
-# Calculate the normalised predictive power of the predictions made
+        # Calculate the normalised predictive power of the predictions made
         # by each GP. Note that, we are assuming that k(x_star, x_star)=1
         betas = np.zeros([N_star, self.N_GPs])
         # Add Jitter term to prevent numeric error
