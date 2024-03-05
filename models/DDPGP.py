@@ -14,7 +14,7 @@ Diego Echeverria
 
 class DistributedDPGP(GPR):
 
-    def __init__(self, X, Y, N_GPs, init_K, kernel, normalise_y=False, plot_expert_pred=False):
+    def __init__(self, X, Y, N_GPs, init_K, kernel, DP_max_iter=70, normalise_y=False, plot_expert_pred=False):
         """
             Initialise objects, variables and parameters
         """
@@ -31,6 +31,7 @@ class DistributedDPGP(GPR):
 
         # The upper bound of the number of Gaussian noise sources
         self.init_K = init_K
+        self.DP_max_iter = DP_max_iter
         self.kernel = kernel
         self.normalise_y = normalise_y
         self.independent_hyper = isinstance(self.kernel, list)
@@ -94,7 +95,8 @@ class DistributedDPGP(GPR):
             else:
                 # All the RGP experts share the same hyperparameters
                 rgp = DPGP(self.X_split[m], self.Y_split[m],
-                           init_K=self.init_K, kernel=self.kernel)
+                           init_K=self.init_K, kernel=self.kernel,
+                           DP_max_iter=self.DP_max_iter)
                 rgp.train(tol, pseudo_sparse=pseudo_sparse)
                 # Print the optimal hyperparameters
                 print('\n Expert ', m, " trained")
