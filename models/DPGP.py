@@ -18,7 +18,7 @@ Diego Echeverria Rios & P.L.Green
 
 class DirichletProcessGaussianProcess(GPR):
     def __init__(self, X, Y, init_K, kernel=RBF,
-                 normalise_y=False, N_iter=8, plot_conv=False, plot_sol=False):
+                 normalise_y=False, N_iter=8, DP_max_iter=70, plot_conv=False, plot_sol=False):
         
                 """ 
                     Initialising variables and parameters
@@ -29,7 +29,8 @@ class DirichletProcessGaussianProcess(GPR):
                 self.Y = np.vstack(Y)           # Targets always vstacked
                 self.N = len(Y)                 # No. training points
                 self.D = np.shape(self.X)[1]    # Dimension of inputs
-                self.N_iter = N_iter            # Max number of iterations
+                self.N_iter = N_iter            # Max number of iterations (DPGP)
+                self.DP_max_iter = DP_max_iter  # Max number of iterations (DP)
                 self.plot_conv = plot_conv
                 self.plot_sol = plot_sol
                 
@@ -156,7 +157,7 @@ class DirichletProcessGaussianProcess(GPR):
 
         gmm =m.BayesianGaussianMixture(n_components=T,
                                        covariance_type='spherical',
-                                       max_iter=70,
+                                       max_iter=self.DP_max_iter,            # original 70
                                        weight_concentration_prior_type='dirichlet_process',
                                        init_params="random",
                                        random_state=42)
