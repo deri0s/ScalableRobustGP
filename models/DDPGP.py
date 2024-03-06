@@ -41,6 +41,10 @@ class DistributedDPGP(GPR):
         self.X_split = np.array_split(self.X, N_GPs)
         self.Y_split = np.array_split(self.Y, N_GPs)
 
+        # Required for modularity (add or remove experts)
+        self.rgps = []
+        self.is_trained = False
+
         # Array of colors to use in the plots (max 200 colors)
         FILE = Path(__file__).resolve()
         colors_path_name = FILE.parents[0] / 'colors.yml'
@@ -79,7 +83,6 @@ class DistributedDPGP(GPR):
             The Product of Robust GP experst training
         """
 
-        rgps = []
         for m in range(self.N_GPs):
             # Check if independent hyperparameters have been given
             if self.independent_hyper:
@@ -91,7 +94,7 @@ class DistributedDPGP(GPR):
                 # Print the optimal hyperparameters
                 print('\n Expert ', m, " trained")
                 print('Hyper -> ', rgp.kernel_, '\n')
-                rgps.append(rgp)
+                self.rgps.append(rgp)
             else:
                 # All the RGP experts share the same hyperparameters
                 rgp = DPGP(self.X_split[m], self.Y_split[m],
@@ -101,10 +104,16 @@ class DistributedDPGP(GPR):
                 # Print the optimal hyperparameters
                 print('\n Expert ', m, " trained")
                 print('Hyper exper: -> ', rgp.kernel_, '\n')
-                rgps.append(rgp)
+                self.rgps.append(rgp)
                 
-        self.rgps = rgps
+        self.is_trained = True
 
+    def add(self, DPGP):
+        if self.is_trained:
+            self.rgps.append(DPGP)
+            self.N_GPs += 1
+        else:
+            assert False, 'Train the model before adding a DPGP expert'
 
     def predict(self, X_star):
         """
