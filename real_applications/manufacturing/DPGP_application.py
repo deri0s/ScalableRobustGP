@@ -43,7 +43,7 @@ date_time = dpm.adjust_time_lag(y_df['Time stamp'].values,
 N, D = np.shape(X)
 # start_train = y_df[y_df['Time stamp'] == '2020-08-15'].index[0]
 # end_train = y_df[y_df['Time stamp'] == '2020-08-30'].index[0]
-model_N = 7
+model_N = 16
 print('\n\n Model : ', model_N)
 step = 1128
 start_train = int(model_N - 1)*step
@@ -65,14 +65,13 @@ DPGP regression
 del X_df, y_df, dpm
 
 # Length scales
-# 1
 # ls = [0.0612, 3.72, 200, 200, 200, 200, 4.35, 0.691, 200, 200]
 # ls = [7, 64, 7, 7.60, 10, 7, 7, 123, 76, 78]
-# ls = [200, 200, 200, 200, 200, 200, 200, 200, 200, 200]
-ls = 1e4*np.ones(10)
+# ls = 1e4*np.ones(10)
+ls = 100*np.ones(10)
 
 # Kernels
-se = 1**2 * RBF(length_scale=ls, length_scale_bounds=(20, 1e6))
+se = 1**2 * RBF(length_scale=ls, length_scale_bounds=(0.1, 1e5))
 wn = WhiteKernel(noise_level=0.61**2, noise_level_bounds=(1e-5, 1))
 
 kernel = se + wn

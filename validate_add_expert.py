@@ -39,12 +39,12 @@ date_time = dpm.adjust_time_lag(y_df['Time stamp'].values,
 # Train and test data
 N, D = np.shape(X)
 
-model_N = 7
+model_N = 16
 print('\n\n Model : ', model_N)
 step = 1128
 start_train = 0
 end_train = int(model_N*step)
-end_test = end_train + 600
+end_test = N
 
 X_train, y_train = X[start_train:end_train], y_raw[start_train:end_train]
 X_test, y_test = X[start_train:end_test], y_raw[start_train:end_test]
@@ -59,7 +59,7 @@ LOAD DDPGP
 """
 import pickle
 
-with open('ddpgp_NGPs'+str(model_N - 2)+'.pkl','rb') as f:
+with open('ddpgp_NGPs'+str(model_N - 1)+'.pkl','rb') as f:
     ddpgp = pickle.load(f)
 
 """
@@ -70,14 +70,14 @@ with open('expert'+str(model_N)+'.pkl','rb') as f:
 
 # add trained expert
 ddpgp.add(expert)
-N_gps = ddpgp.N_GPs
+N_gps = model_N
 print('N-GPs: ', N_gps)
 
 """
 SAVE EXTENDED MODEL
 """
-# with open('ddpgp_NGPs'+str(model_N)+'.pkl','wb') as f:
-#     pickle.dump(ddpgp,f)
+with open('ddpgp_NGPs'+str(model_N)+'.pkl','wb') as f:
+    pickle.dump(ddpgp,f)
 
 # predictions
 mu, std, betas = ddpgp.predict(X_test)
@@ -88,7 +88,7 @@ mu, std, betas = ddpgp.predict(X_test)
 
 fig, ax = plt.subplots()
 fig.autofmt_xdate()
-for k in range(N_gps):
+for k in range(N_gps-1):
     ax.plot(date_time, betas[:,k], color=ddpgp.c[k], linewidth=2,
             label='Beta: '+str(k))
     plt.axvline(date_time[int(k*step)], linestyle='--', linewidth=2,
