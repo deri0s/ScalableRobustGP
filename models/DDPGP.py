@@ -108,12 +108,19 @@ class DistributedDPGP(GPR):
                 
         self.is_trained = True
 
+    """
+    MODULARITY
+    """
     def add(self, DPGP):
         if self.is_trained:
             self.rgps.append(DPGP)
             self.N_GPs += 1
         else:
             assert False, 'Train the model before adding a DPGP expert'
+
+    def delete(self, position: int):
+        del self.rgps[position]
+        self.N_GPs -= 1
 
     def predict(self, X_star):
         """
@@ -174,6 +181,9 @@ class DistributedDPGP(GPR):
         # Normalise betas
         scaler = MinMaxScaler(feature_range=(0,1))
         betas = scaler.fit_transform(betas)
+
+        # Eliminate beta values < 0.9
+        betas[betas <= 0.5] = 0
 
         # Compute the gPoE precision
         prec_star = np.zeros(N_star)
