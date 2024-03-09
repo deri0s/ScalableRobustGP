@@ -76,7 +76,7 @@ date_time = date_time[start_train:end_test]
 y_raw = y_raw[start_train:end_test]
 y_rect = y0[start_train:end_test]
 
-N_gps = 16
+N_gps = 8
 step = int(len(X_train)/N_gps)
 
 """

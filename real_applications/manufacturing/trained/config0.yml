@@ -1,11 +1,12 @@
+# Configuration file for the DDPGP model with N-GPs=16 and expert-size (N-local)=1128
 N: 21497
 N_train: 18057
 train_per: 0.84
-test_per: 0.16
+test_per: 0.16 # 84% avoids noise burst at the end of data
 N_local: 1128
 NGPs: 16 # They are actually 14 but we jumped the 6th and the 8th 
 kernel: RBF + WhiteKernel
-ignored_regions: [6]
+ignored_regions: [6, 8]
 DP_hyper:
   init_K: 7
   DP_max_iter:

@@ -43,9 +43,9 @@ date_time = dpm.adjust_time_lag(y_df['Time stamp'].values,
 N, D = np.shape(X)
 # start_train = y_df[y_df['Time stamp'] == '2020-08-15'].index[0]
 # end_train = y_df[y_df['Time stamp'] == '2020-08-30'].index[0]
-model_N = 16
+model_N = 1
 print('\n\n Model : ', model_N)
-step = 1128
+step = 2257
 start_train = int(model_N - 1)*step
 end_train = int(model_N*step)
 end_test = end_train + 600
@@ -68,7 +68,7 @@ del X_df, y_df, dpm
 # ls = [0.0612, 3.72, 200, 200, 200, 200, 4.35, 0.691, 200, 200]
 # ls = [7, 64, 7, 7.60, 10, 7, 7, 123, 76, 78]
 # ls = 1e4*np.ones(10)
-ls = 100*np.ones(10)
+ls = 800*np.ones(10)
 
 # Kernels
 se = 1**2 * RBF(length_scale=ls, length_scale_bounds=(0.1, 1e5))

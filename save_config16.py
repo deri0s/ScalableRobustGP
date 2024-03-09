@@ -59,22 +59,21 @@ LOAD DDPGP
 """
 import pickle
 
-with open('ddpgp_NGPs'+str(model_N)+'.pkl','rb') as f:
+with open('ddpgp_NGPs16_final.pkl','rb') as f:
     ddpgp = pickle.load(f)
-
-"""
-DELETE AND SAVE
-"""
-# delete sixth expert
-ddpgp.delete(6)
-
-with open('ddpgp_NGPs'+str(model_N)+'_deleted6th.pkl','wb') as f:
-    pickle.dump(ddpgp,f)
 
 N_gps = model_N
 
 # predictions
 mu, std, betas = ddpgp.predict(X_test)
+
+"""
+SAVE TO CSV
+"""
+d = {'date-time': date_time, 'mu': mu, 'std': std}
+df = pd.DataFrame(d)
+df.to_csv('DDPGP_NGPs16_predictions.csv', index=False)
+
 
 #-----------------------------------------------------------------------------
 # Plot beta
@@ -82,9 +81,16 @@ mu, std, betas = ddpgp.predict(X_test)
 
 fig, ax = plt.subplots()
 fig.autofmt_xdate()
-for k in range(N_gps-2):
+
+# Take N_GPs from the DDPGP model to match the betas columns
+for k in range(ddpgp.N_GPs+1):
     ax.plot(date_time, betas[:,k], color=ddpgp.c[k], linewidth=2,
             label='Beta: '+str(k))
+    
+
+# Expert size
+# Take the N_GPs from the config file to include the ignored files
+for h in range(N_gps):
     plt.axvline(date_time[int(k*step)], linestyle='--', linewidth=2,
                 color='black')
 
@@ -93,7 +99,8 @@ plt.axvline(date_time[-1], linestyle='--', linewidth=3,
 ax.set_title('Predictive contribution of robust GP experts')
 ax.set_xlabel('Date-time')
 ax.set_ylabel('Predictive contribution')
-plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
+plt.legend(bbox_to_anchor=(0., 1.02, 1., .102), loc='upper left',
+           ncol=ddpgp.N_GPs, facecolor="white", framealpha=1.0)
 
 #-----------------------------------------------------------------------------
 # REGRESSION PLOT
