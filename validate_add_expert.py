@@ -39,7 +39,7 @@ date_time = dpm.adjust_time_lag(y_df['Time stamp'].values,
 # Train and test data
 N, D = np.shape(X)
 
-model_N = 16
+model_N = 7
 print('\n\n Model : ', model_N)
 step = 1128
 start_train = 0
@@ -59,13 +59,13 @@ LOAD DDPGP
 """
 import pickle
 
-with open('ddpgp_NGPs'+str(model_N - 1)+'.pkl','rb') as f:
+with open('ddpgp_NGPs5_config1.pkl','rb') as f:
     ddpgp = pickle.load(f)
 
 """
 LOAD DPGP expert
 """
-with open('expert'+str(model_N)+'.pkl','rb') as f:
+with open('expert7_enhanced.pkl','rb') as f:
     expert = pickle.load(f)
 
 # add trained expert
@@ -76,7 +76,7 @@ print('N-GPs: ', N_gps)
 """
 SAVE EXTENDED MODEL
 """
-with open('ddpgp_NGPs'+str(model_N)+'.pkl','wb') as f:
+with open('ddpgp_NGPs6_enhanced_config1.pkl','wb') as f:
     pickle.dump(ddpgp,f)
 
 # predictions
@@ -88,7 +88,7 @@ mu, std, betas = ddpgp.predict(X_test)
 
 fig, ax = plt.subplots()
 fig.autofmt_xdate()
-for k in range(N_gps-1):
+for k in range(model_N):
     ax.plot(date_time, betas[:,k], color=ddpgp.c[k], linewidth=2,
             label='Beta: '+str(k))
     plt.axvline(date_time[int(k*step)], linestyle='--', linewidth=2,
@@ -125,7 +125,7 @@ ax.set_ylabel(" Fault density", fontsize=14)
 plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
 
 # Plot the limits of each expert
-for s in range(N_gps):
+for s in range(model_N):
     plt.axvline(date_time[int(s*step)], linestyle='--', linewidth=2,
                 color='black')
 

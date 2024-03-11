@@ -39,7 +39,7 @@ date_time = dpm.adjust_time_lag(y_df['Time stamp'].values,
 # Train and test data
 N, D = np.shape(X)
 
-model_N = 16
+model_N = 6
 print('\n\n Model : ', model_N)
 step = 1128
 start_train = 0
@@ -59,7 +59,7 @@ LOAD DDPGP
 """
 import pickle
 
-with open('ddpgp_NGPs16_final.pkl','rb') as f:
+with open('ddpgp_NGPs6_enhanced_config1.pkl','rb') as f:
     ddpgp = pickle.load(f)
 
 N_gps = model_N
@@ -70,9 +70,15 @@ mu, std, betas = ddpgp.predict(X_test)
 """
 SAVE TO CSV
 """
+
 d = {'date-time': date_time, 'mu': mu, 'std': std}
+
+# save betas
+for k in range(N_gps):
+    d['beta'+str(k+1)] = betas[:,k]
+
 df = pd.DataFrame(d)
-df.to_csv('DDPGP_NGPs16_predictions.csv', index=False)
+df.to_csv('DDPGP_NGPs6_config1_predictions.csv', index=False)
 
 
 #-----------------------------------------------------------------------------
@@ -83,7 +89,7 @@ fig, ax = plt.subplots()
 fig.autofmt_xdate()
 
 # Take N_GPs from the DDPGP model to match the betas columns
-for k in range(ddpgp.N_GPs+1):
+for k in range(ddpgp.N_GPs):
     ax.plot(date_time, betas[:,k], color=ddpgp.c[k], linewidth=2,
             label='Beta: '+str(k))
     

@@ -63,7 +63,9 @@ y0 = np.delete(y0, remove, 0)
 
 # Train and test data
 N, D = np.shape(X)
-start_train = 0
+# start_train = 0# next 2020-12-23
+start_train = y_df[y_df['Time stamp'] == '2021-04-10 00:00:00'].index[0] # Start-test: 2021-05-10
+
 end_test = N
 training_per = 0.84          # 84% avoids noise burst at the end of data
 test_per = 1- training_per
@@ -76,8 +78,12 @@ date_time = date_time[start_train:end_test]
 y_raw = y_raw[start_train:end_test]
 y_rect = y0[start_train:end_test]
 
-N_gps = 8
+N_gps = 1
 step = int(len(X_train)/N_gps)
+
+print(np.shape(X_train))
+print(np.shape(X_test))
+print('step: ', step)
 
 """
 PLOT
@@ -94,9 +100,12 @@ plt.fill_between(date_time[:N_train], 50, color='lightgreen', alpha=0.6,
                  label='training')
 # plt.fill_between(date_time[similar], 50, color='lightgreen', alpha=0.6,
 #                  label='test data similar to training')
-for k in range(N_gps):
+for k in range(N_gps+1):
     plt.axvline(date_time[int(k*step)], linestyle='--', linewidth=2,
                 color='black', label='div '+str(k))
+
+# plt.axvline(date_time[int(N_train)], linestyle='--', linewidth=2,
+#             color='black', label='test')
 
 ax.set_title('Predictive contribution of robust GP experts')
 ax.set_xlabel('Date-time')
@@ -107,32 +116,4 @@ print('N: ', N, ' N-train: ', N_train, ' N-test: ', int(N - N_train),
       ' test: ', f'{int(100*test_per)}%',
       ' step: ', step, ' sparse-step: ', step/2)
 
-# # ----------------------------------------------------------------------------
-# # PCA and PLOTS
-# # ----------------------------------------------------------------------------
-# from sklearn.decomposition import PCA
-
-# pca = PCA(n_components=2)
-# pca.fit(X)
-# Xt = pca.transform(X)
-
-# # PCA on training data
-# Xt_train = pca.transform(X_train)
-
-# # PCA on test data
-# Xt_test = pca.transform(X_test)
-    
-# # Plot at each 1000 points
-# step
-# fig, ax = plt.subplots()
-# ax.plot(Xt[:, 0], Xt[:, 1], 'o', markersize=0.9, c='grey',
-#         label='Available training data', alpha=0.9)
-# ax.plot(Xt_train[:, 0], Xt_train[:, 1], 'o', markersize=8.9, c='orange',
-#         label='Used Training data', alpha=0.6)
-# ax.plot(Xt_test[:,0], Xt_test[:,1], '*', markersize=5.5,
-#         c='purple', label='test data', alpha=0.6)
-# ax.plot(Xt_test[similar,0], Xt_test[similar,1], '*', markersize=5.5,
-#         c='limegreen', label='similar', alpha=0.6)
-# ax.set_xlim(np.min(Xt[:, 0]), np.max(np.max(Xt[:, 0])))
-# ax.set_ylim(np.min(Xt[:, 0]), np.max(np.max(Xt[:, 1])))
 plt.show()
