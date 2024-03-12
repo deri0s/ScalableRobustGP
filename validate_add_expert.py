@@ -59,8 +59,11 @@ LOAD DDPGP
 """
 import pickle
 
-with open('ddpgp_NGPs5_config1.pkl','rb') as f:
+with open('ddpgp_NGPs3_diego_config1.pkl','rb') as f:
     ddpgp = pickle.load(f)
+
+    #delete experts that are not contributing on the test region
+    ddpgp.delete(1)
 
 """
 LOAD DPGP expert
@@ -76,7 +79,7 @@ print('N-GPs: ', N_gps)
 """
 SAVE EXTENDED MODEL
 """
-with open('ddpgp_NGPs6_enhanced_config1.pkl','wb') as f:
+with open('ddpgp_NGPsx_diego_config1.pkl','wb') as f:
     pickle.dump(ddpgp,f)
 
 # predictions

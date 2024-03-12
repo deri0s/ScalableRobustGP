@@ -43,7 +43,7 @@ date_time = dpm.adjust_time_lag(y_df['Time stamp'].values,
 N, D = np.shape(X)
 # '2021-03-27 00:00:00'
 # '2021-05-08 00:00:00'
-start_train = y_df[y_df['Time stamp'] == '2021-03-27 00:00:00'].index[0]
+start_train = y_df[y_df['Time stamp'] == '2021-04-01 00:00:00'].index[0]
 end_train = y_df[y_df['Time stamp'] == '2021-05-08 00:00:00'].index[0]
 model_N = 1
 print('\n\n Model : ', model_N)
@@ -83,7 +83,7 @@ dpgp.train(pseudo_sparse=True)
 # save trained model
 import pickle
 
-with open('expert'+str(7)+'_enhanced.pkl','wb') as f:
+with open('expert'+str(6)+'last_.pkl','wb') as f:
     pickle.dump(dpgp,f)
 
 # predictions
