@@ -13,6 +13,9 @@ def get_synthetic_path(file_name: str) -> str:
 def get_motorcycle_path(file_name) -> str:
      return root / 'examples/motorcycle' / file_name
 
+def get_config_path(file_name) -> str:
+     return root / 'real_applications/manufacturing/trained' /file_name
+
 # test
 # print('que? ', get_synthetic_path('Synthetic.xlsx'))
 # data = pd.read_excel(get_nsg_path('processed/NSG_data.xlsx'), sheet_name='X_training_stand')

@@ -14,7 +14,7 @@ Diego Echeverria
 
 class DistributedDPGP(GPR):
 
-    def __init__(self, X, Y, N_GPs, init_K, kernel, normalise_y=False, plot_expert_pred=False):
+    def __init__(self, X, Y, N_GPs=1, init_K=2, kernel=None, DP_max_iter=70, normalise_y=False, plot_expert_pred=False):
         """
             Initialise objects, variables and parameters
         """
@@ -31,6 +31,7 @@ class DistributedDPGP(GPR):
 
         # The upper bound of the number of Gaussian noise sources
         self.init_K = init_K
+        self.DP_max_iter = DP_max_iter
         self.kernel = kernel
         self.normalise_y = normalise_y
         self.independent_hyper = isinstance(self.kernel, list)
@@ -39,6 +40,11 @@ class DistributedDPGP(GPR):
         # Divide up data evenly between GPs
         self.X_split = np.array_split(self.X, N_GPs)
         self.Y_split = np.array_split(self.Y, N_GPs)
+
+        # Required for modularity (add or remove experts)
+        self.rgps = []
+        self.is_trained = False
+        self.is_initialised = True
 
         # Array of colors to use in the plots (max 200 colors)
         FILE = Path(__file__).resolve()
@@ -78,7 +84,6 @@ class DistributedDPGP(GPR):
             The Product of Robust GP experst training
         """
 
-        rgps = []
         for m in range(self.N_GPs):
             # Check if independent hyperparameters have been given
             if self.independent_hyper:
@@ -90,18 +95,41 @@ class DistributedDPGP(GPR):
                 # Print the optimal hyperparameters
                 print('\n Expert ', m, " trained")
                 print('Hyper -> ', rgp.kernel_, '\n')
-                rgps.append(rgp)
+                self.rgps.append(rgp)
             else:
                 # All the RGP experts share the same hyperparameters
                 rgp = DPGP(self.X_split[m], self.Y_split[m],
-                           init_K=self.init_K, kernel=self.kernel)
+                           init_K=self.init_K, kernel=self.kernel,
+                           DP_max_iter=self.DP_max_iter)
                 rgp.train(tol, pseudo_sparse=pseudo_sparse)
                 # Print the optimal hyperparameters
                 print('\n Expert ', m, " trained")
                 print('Hyper exper: -> ', rgp.kernel_, '\n')
-                rgps.append(rgp)
+                self.rgps.append(rgp)
                 
-        self.rgps = rgps
+        self.is_trained = True
+
+    """
+    MODULARITY
+    """
+    def add(self, DPGP):
+        if isinstance(DPGP, list):
+            if self.is_initialised:
+                self.rgps = DPGP
+                self.N_GPs = len(self.rgps)
+                self.is_trained = True
+            else:
+                assert False, 'Initialise DDPGP object before adding trained DPGP experts'
+        else:
+            if self.is_trained:
+                self.rgps.append(DPGP)
+                self.N_GPs += 1
+            else:
+                assert False, 'Train the model before adding a DPGP expert'
+
+    def delete(self, position: int):
+        del self.rgps[position]
+        self.N_GPs -= 1
 
 
     def predict(self, X_star):
@@ -163,6 +191,9 @@ class DistributedDPGP(GPR):
         # Normalise betas
         scaler = MinMaxScaler(feature_range=(0,1))
         betas = scaler.fit_transform(betas)
+
+        # Eliminate beta values < 0.9
+        betas[betas <= 0.5] = 0
 
         # Compute the gPoE precision
         prec_star = np.zeros(N_star)

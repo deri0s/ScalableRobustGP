@@ -15,7 +15,7 @@ Diego Echeverria
 
 class DistributedGP(GPR):
 
-    def __init__(self, X, Y, N_GPs, kernel, plot_expert_pred=False):
+    def __init__(self, X, Y, N_GPs, kernel, normalise_y=False, plot_expert_pred=False):
         """
             Initialise objects, variables and parameters
         """
@@ -37,7 +37,11 @@ class DistributedGP(GPR):
         self.X_split = np.array_split(self.X, N_GPs)
         self.Y_split = np.array_split(self.Y, N_GPs)
 
-                # Array of colors to use in the plots (max 200 colors)
+        # Required for modularity (add or remove experts)
+        self.gps = []
+        self.is_trained = False
+
+        # Array of colors to use in the plots (max 200 colors)
         FILE = Path(__file__).resolve()
         colors_path_name = FILE.parents[0] / 'colors.yml'
 
@@ -67,41 +71,61 @@ class DistributedGP(GPR):
             advance += step
         plt.legend()
 
-
-    def predict(self, X_star):
-        """
-        Description
-        -----------
-            Training and prediction tasks for the rBCM model
-        Parameters
-        ----------
-            X_star : numpy array of new inputs
-            N_star : no. new inputs
-        Returns
-        -------
-            mu_star : vector of the rBCM predicitve mean values
-            sigma_star : vector of the rBCM predicitve std values
-            beta : [N_star x N_GPs] predictive power of each expert
-        """
-        
-        X_star = np.vstack(X_star)
-
+    def train(self, pseudo_sparse=False):
         # Train GP experts
-        gps = []
         for m in range(self.N_GPs):
             # Check if the kernel uses ARD
             if self.ARD:
                 gp = GPR(kernel=self.kernel[m], alpha=self.alpha,
                          normalize_y = False, n_restarts_optimizer = 0)
-                gp.fit(self.X_split[m], self.Y_split[m])
-                gps.append(gp)
+
+                if pseudo_sparse:
+                    gp.fit(self.X_split[0][0:self.N:2, m], self.Y_split[0][0:self.N:2, m])
+                else:
+                    gp.fit(self.X_split[m], self.Y_split[m])
+
+                self.gps.append(gp)
             else:
                 gp = GPR(kernel=self.kernel, alpha=self.alpha,
                          normalize_y = False, n_restarts_optimizer = 0)
-                gp.fit(self.X_split[m], self.Y_split[m])
-                gps.append(gp)
                 
-        self.gps = gps
+                if pseudo_sparse:
+                    gp.fit(self.X_split[0][0:self.N:2, m], self.Y_split[0][0:self.N:2, m])
+                else:
+                    gp.fit(self.X_split[m], self.Y_split[m])
+                
+                self.gps.append(gp)
+                
+        self.is_trained = True
+
+        """
+    MODULARITY
+    """
+    def add(self, GP):
+        if self.is_trained:
+            self.rgps.append(GP)
+            self.N_GPs += 1
+        else:
+            assert False, 'Train the model before adding a DPGP expert'
+
+    def delete(self, position: int):
+        del self.rgps[position]
+        self.N_GPs -= 1
+
+    def predict(self, X_star):
+        """
+        Parameters
+        ----------
+            X_star : numpy array of new inputs
+            
+        Returns
+        -------
+            mu_star : vector of the gPoE predicitve mean values
+            sigma_star : vector of the gPoE predicitve std values
+            beta : [N_star x N_GPs] predictive power of each expert
+        """
+        
+        X_star = np.vstack(X_star)
 
         # Collect the experts predictive mean and standard deviation
         N_star = len(X_star)
@@ -125,7 +149,7 @@ class DistributedGP(GPR):
                 for k in range(N_local):
                     mu, sigma = self.gps[i].predict(X_star_split[k],
                                                     return_std=True)
-                    full_mean_exp.extend(mu[:, 0])
+                    full_mean_exp.extend(mu)
                     full_std_exp.extend(sigma)
                     
                 mu_all[:, i] = np.asarray(full_mean_exp)
