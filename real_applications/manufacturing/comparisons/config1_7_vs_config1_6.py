@@ -34,7 +34,7 @@ date_time = dpm.adjust_time_lag(y_df['Time stamp'].values,
                                 to_remove=max_lag)
 
 """
-READ config
+TRAINING AND TESTING DATA
 """
 current_path = Path(__file__).resolve()
 trained_path = current_path.parents[1] / 'trained'
@@ -45,20 +45,11 @@ N_train = int(N*0.84)
 
 test_range = range(0, N)
 X_test = X[test_range]
-# print('X: ', np.shape(X), ' N_train: ', N_train, ' N-test: ', N_train + 720)
 dt_test, y_test = date_time[test_range], y0[test_range]
 
 """
 Scalable Robust GP
 """
-
-# from pickle
-# ddpgp_path = trained_path / 'ddpgp_NGPs3_config1'
-
-# with open(ddpgp_path, 'rb') as f:
-#     ddpgp = pickle.load(f)
-
-# muMix, stdMix, betasMix = ddpgp.predict(X_test)
 
 gp_config0_path = trained_path / 'results/DDPGP_NGPs6_config1_predictions.csv'
 df = pd.read_csv(gp_config0_path)
@@ -76,7 +67,7 @@ for k in range(3, len(df.columns)):
     betas[:, k-N_gps] = df.iloc[:, k]
 
 # config1
-gp_config1_path = trained_path / 'results/DDPGP_NGPs3_x_config1_predictions.csv'
+gp_config1_path = trained_path / 'results/ddpgp_NGPs2_assembled.csv'
 df = pd.read_csv(gp_config1_path)
 
 print(df.head(3))
@@ -88,14 +79,14 @@ mu1[np.isnan(mu1)] = 0
 std1 = df['std']
 
 std1[std1 > 1.8*np.min(std1)] = np.max(y_raw)
-N_gps1 = 6
+N_gps1 = 2
 betas1 = np.zeros((len(df), N_gps1))
 
 print('mean:', np.mean(std1), ' max: ', np.max(std1), ' min: ', np.min(std1))
 
-for k in range(3, len(df.columns)):
-    print('k: ', df.columns[k])
-    betas1[:, k-3] = df.iloc[:, k]
+# for k in range(3, len(df.columns)):
+#     print('k: ', df.columns[k])
+#     betas1[:, k-3] = df.iloc[:, k]
 
 print('MAE')
 # print('NN: ', mae(y_test, yNN))

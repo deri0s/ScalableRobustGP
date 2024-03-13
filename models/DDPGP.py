@@ -14,7 +14,7 @@ Diego Echeverria
 
 class DistributedDPGP(GPR):
 
-    def __init__(self, X, Y, N_GPs, init_K, kernel, DP_max_iter=70, normalise_y=False, plot_expert_pred=False):
+    def __init__(self, X, Y, N_GPs=1, init_K=2, kernel=None, DP_max_iter=70, normalise_y=False, plot_expert_pred=False):
         """
             Initialise objects, variables and parameters
         """
@@ -44,6 +44,7 @@ class DistributedDPGP(GPR):
         # Required for modularity (add or remove experts)
         self.rgps = []
         self.is_trained = False
+        self.is_initialised = True
 
         # Array of colors to use in the plots (max 200 colors)
         FILE = Path(__file__).resolve()
@@ -112,15 +113,24 @@ class DistributedDPGP(GPR):
     MODULARITY
     """
     def add(self, DPGP):
-        if self.is_trained:
-            self.rgps.append(DPGP)
-            self.N_GPs += 1
+        if isinstance(DPGP, list):
+            if self.is_initialised:
+                self.rgps = DPGP
+                self.N_GPs = len(self.rgps)
+                self.is_trained = True
+            else:
+                assert False, 'Initialise DDPGP object before adding trained DPGP experts'
         else:
-            assert False, 'Train the model before adding a DPGP expert'
+            if self.is_trained:
+                self.rgps.append(DPGP)
+                self.N_GPs += 1
+            else:
+                assert False, 'Train the model before adding a DPGP expert'
 
     def delete(self, position: int):
         del self.rgps[position]
         self.N_GPs -= 1
+
 
     def predict(self, X_star):
         """

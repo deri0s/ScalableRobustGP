@@ -41,19 +41,16 @@ date_time = dpm.adjust_time_lag(y_df['Time stamp'].values,
 
 # Train and test data
 N, D = np.shape(X)
-# '2021-03-27 00:00:00'
-# '2021-05-08 00:00:00'
 start_train = y_df[y_df['Time stamp'] == '2021-04-01 00:00:00'].index[0]
 end_train = y_df[y_df['Time stamp'] == '2021-05-08 00:00:00'].index[0]
 model_N = 1
 print('\n\n Model : ', model_N)
 step = int(end_train - start_train)
-# start_train = int(model_N - 1)*step
 # end_train = start_train + int(model_N*step)
 end_test = N
-N_train = abs(end_train - start_train)
 
 X_train, y_train = X[start_train:end_train], y_raw[start_train:end_train]
+N_train = len(y_train)
 X_test, y_test = X[start_train:end_test], y_raw[start_train:end_test]
 
 date_time = date_time[start_train:end_test]
@@ -80,10 +77,17 @@ kernel = se + wn
 dpgp = DPGP(X_train, y_train, init_K=7, kernel=kernel, DP_max_iter=300)
 dpgp.train(pseudo_sparse=True)
 
-# save trained model
+"""
+SAVE MODEL
+"""
+from pathlib import Path
 import pickle
 
-with open('expert'+str(6)+'last_.pkl','wb') as f:
+current_path = Path(__file__).resolve()
+trained_path = current_path.parents[1] / 'trained'
+model_path = trained_path / 'expert'+str(6)+'last_.pkl'
+
+with open(model_path,'wb') as f:
     pickle.dump(dpgp,f)
 
 # predictions
