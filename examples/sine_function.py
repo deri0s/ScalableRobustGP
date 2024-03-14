@@ -18,8 +18,8 @@ y = np.zeros(N)
 
 # Noise structure
 std1 = 0.1
-std2 = 1
-pi1 = 0.9
+std2 = 1.5
+pi1 = 0.5
 pi2 = 1 - pi1
 
 # proportionalities vector
@@ -51,6 +51,7 @@ mu, std, betas = model.predict(x)
 Compare with DGP
 """
 dgp = DGP(x, y, N_GPs=N_GPs, kernel=kernel)
+dgp.train()
 muGP, stdGP, betasGP = dgp.predict(x)
 
 ### CALCULATING THE OVERALL MSE

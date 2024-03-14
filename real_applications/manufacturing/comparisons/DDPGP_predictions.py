@@ -51,8 +51,8 @@ dt_test, y_test = date_time[test_range], y0[test_range]
 Scalable Robust GP
 """
 
-gp_config0_path = trained_path / 'results/DDPGP_NGPs6_config1_predictions.csv'
-df = pd.read_csv(gp_config0_path)
+gp_config1_path = trained_path / 'results/DDPGP_NGPs6_config1_predictions.csv'
+df = pd.read_csv(gp_config1_path)
 
 # identify regions where the DDPGP model is not confident
 uncertain = df.mu[df.mu.isna()].index

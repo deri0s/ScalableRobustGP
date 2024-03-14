@@ -56,15 +56,11 @@ uncertain = df.mu[df.mu.isna()].index
 
 # # set nan values for mu and std to zero and 100, respectively 
 df.interpolate(method='zero', inplace=True)
-mu = df.mu
-std = df['std']
-N_gps = 6
-betas = np.zeros((len(df), N_gps))
+mu = df.mu.values
+std = df['std'].values
+dt_dpgp = df['date-time']
 
-for k in range(3, len(df.columns)):
-    betas[:, k-N_gps] = df.iloc[:, k]
-
-# print('mean:', np.mean(std), ' max: ', np.max(std), ' min: ', np.min(std))
+print('\ndate-time: ', date_time[0], ' dt-dpgp: ', dt_dpgp[0])
 
 """
 CREATE GIF
@@ -73,7 +69,8 @@ from matplotlib.animation import FuncAnimation, PillowWriter
 
 N_test = 216
 
-start = y_df[y_df['Time stamp'] == '2021-04-29'].index[0]
+start = y_df[y_df['Time stamp'] == '2021-05-04'].index[0]
+train_test_line = N_train - start
 test_range = range(start, N)
 
 # The number of fault density data points that we can see after the model's
@@ -81,46 +78,67 @@ test_range = range(start, N)
 plot_lim = 144
 
 X_test = X[test_range]
+mu, std = mu[test_range], std[test_range]
 dt_test, y_rect, y_raw = date_time[test_range], y0[test_range], y_raw0[test_range]
 
-# Initialise plot for video
+# # Initialise plot for video
 fig, ax = plt.subplots()
-fig.suptitle('Fault density forecast')
-print('frames: \n', np.arange(0, N_test-plot_lim))
-print('dt-test: ', np.shape(dt_test))
+
+indx = range(0, 0+N_test)
 
 def animate(i):
-    print('Frame', str(i), 'out of', str(len(y_rect) - N_test - plot_lim))
+    print('Frame', str(i), 'out of', str(N - plot_lim))
 
     indx = range(i, i+N_test)
 
     ax.clear()
+    fig.autofmt_xdate()
     ax.plot(dt_test, y_raw, 'grey', label='Pre-processed')
-    ax.plot(dt_test, y_rect,'black', label='Processed')
+    ax.plot(dt_test, y_rect,'royalblue', label='Processed')
+    plt.text(dt_test[0+train_test_line-110], 2.5,
+             r'$\leftarrow$ Training data',
+             fontsize = 12,
+             color='white',
+             bbox = dict(facecolor = 'black'))
+    plt.text(dt_test[0+train_test_line+7], 2,
+             r'Test data $\rightarrow$',
+             fontsize = 12,
+             color='white',
+             bbox = dict(facecolor = 'black'))
+    ax.axvline(dt_test[0+train_test_line], linestyle='--',
+               linewidth=3,
+               color='red')
 
     # Plot linear regression predictions
-    mu_line = ax.plot(dt_test[indx], mu[indx], 'red')
+    mu_line = ax.plot(dt_test[indx], mu[indx], linewidth=3, c='red',
+                      label='DDPGP')
 
     var_area = ax.fill_between(dt_test[indx],
                                mu[indx] + 3*std[indx], mu[indx] - 3*std[indx],
                                alpha=0.5, color='gold',
-                               label='Confidence \nBounds (DRGPs)')
+                               label='Confidence \nBounds') 
 
     # Set axes of first subplot
-    ax.set_ylim([-0.3, 2])
+    ax.set_ylim([-0.3, 3])
     ax.set_xlim([dt_test[i - 10], dt_test[i+N_test + plot_lim]])
+
+    ax.set_xlabel(" Date-time", fontsize=13)
+    ax.set_ylabel(" Fault density", fontsize=13)
+    ax.legend(bbox_to_anchor=(0.5, 1.19), ncol=4, loc='upper center')
+            #   facecolor="white", framealpha=1.0)
 
     return [mu_line, var_area]
 
 
 # Calling animation function to create a video
+up_to = 9 # 8 = one month, 1 = full test data
 ani = FuncAnimation(fig,
                     func=animate,
-                    frames=np.arange(0, N_test-plot_lim),
+                    frames=np.arange(0, len(test_range) - up_to*N_test - plot_lim),
                     interval=1,
                     repeat=False)
 
 # Saving the created video
-ani.save('draft_gif.gif', writer=PillowWriter(fps=15))
-plt.show()
+ani.save('figures/NSG/forecast.gif', writer=PillowWriter(fps=15))
+# plt.show()
 plt.close()
