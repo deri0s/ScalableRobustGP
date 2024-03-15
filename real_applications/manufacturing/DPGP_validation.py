@@ -73,15 +73,16 @@ DPGP regression
 del X_df, y_df, dpm
 
 # Length scales
-ls = [7, 64, 7, 7.60, 7, 7, 7, 123, 76, 78]
+# ls = [7, 64, 7, 7.60, 7, 7, 7, 123, 76, 78]
+ls = 1000*np.ones(10)
 
 # Kernels
-se = 1**2 * RBF(length_scale=ls, length_scale_bounds=(0.5, 300))
+se = 1**2 * RBF(length_scale=ls, length_scale_bounds=(0.25, 1e5))
 wn = WhiteKernel(noise_level=0.61**2, noise_level_bounds=(1e-5, 1))
 
 kernel = se + wn
 
-dpgp = DPGP(X_train, y_train, init_K=7, kernel=kernel)
+dpgp = DPGP(X_train, y_train, init_K=7, kernel=kernel, DP_max_iter=250, plot_conv=True)
 dpgp.train(pseudo_sparse=True)
 
 # predictions
@@ -134,8 +135,8 @@ ax.set_title(" Clustering performance", fontsize=18)
 if dpgp.K_opt != 1:
     for i, (k, c) in enumerate(zip(enumerate_K, color_iter)):
         ax.plot(date_time[dpgp.indices[k]], y_raw[dpgp.indices[k]],
-                'o',color=c, markersize = 8, label='Noise Level '+str(k))
-ax.plot(date_time, mu, color="green", linewidth = 2, label=" DPGP")
+                'o',color=c, markersize = 8, label='Noise level '+str(k))
+ax.plot(date_time, mu, color="green", linewidth = 2, label="DDPGP")
 ax.set_xlabel(" Date-time", fontsize=14)
 ax.set_ylabel(" Fault density", fontsize=14)
 plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)

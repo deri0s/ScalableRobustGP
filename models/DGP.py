@@ -71,28 +71,20 @@ class DistributedGP(GPR):
             advance += step
         plt.legend()
 
-    def train(self, pseudo_sparse=False):
+    def train(self):
         # Train GP experts
         for m in range(self.N_GPs):
             # Check if the kernel uses ARD
             if self.ARD:
                 gp = GPR(kernel=self.kernel[m], alpha=self.alpha,
                          normalize_y = False, n_restarts_optimizer = 0)
-
-                if pseudo_sparse:
-                    gp.fit(self.X_split[0][0:self.N:2, m], self.Y_split[0][0:self.N:2, m])
-                else:
-                    gp.fit(self.X_split[m], self.Y_split[m])
+                gp.fit(self.X_split[m], self.Y_split[m])
 
                 self.gps.append(gp)
             else:
                 gp = GPR(kernel=self.kernel, alpha=self.alpha,
                          normalize_y = False, n_restarts_optimizer = 0)
-                
-                if pseudo_sparse:
-                    gp.fit(self.X_split[0][0:self.N:2, m], self.Y_split[0][0:self.N:2, m])
-                else:
-                    gp.fit(self.X_split[m], self.Y_split[m])
+                gp.fit(self.X_split[m], self.Y_split[m])
                 
                 self.gps.append(gp)
                 
