@@ -135,7 +135,7 @@ Notice that the conditioned furnace faults were obtained using large pre-process
 The following video depicts the same experiment shown in the previous video with the addition of the predictions of a NN that has been trained with the processed (blue line) data as the model targets. Notice that this approach requires the development of complex pre-processing pipelines to condition the furnace faults.
 
 <div align="center">
-    <img src="figures/NSG/DDPGP_vs_NN.gif.gif" alt="Snow" style="width:90%">
+    <img src="figures/NSG/DDPGP_vs_NN.gif" alt="Snow" style="width:90%">
 </div>
 
 Although both models used different model targets, their predictions were very close during the first days of test data.
