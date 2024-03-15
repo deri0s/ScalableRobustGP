@@ -67,7 +67,8 @@ CREATE GIF
 """
 from matplotlib.animation import FuncAnimation, PillowWriter
 
-N_test = 216
+N_test = 216    # 3 days into the future
+up_to = 9       # up_to = 8 is one month, up_to = 1 is the full test data
 
 start = y_df[y_df['Time stamp'] == '2021-05-04'].index[0]
 train_test_line = N_train - start
@@ -131,7 +132,6 @@ def animate(i):
 
 
 # Calling animation function to create a video
-up_to = 9 # 8 = one month, 1 = full test data
 ani = FuncAnimation(fig,
                     func=animate,
                     frames=np.arange(0, len(test_range) - up_to*N_test - plot_lim),

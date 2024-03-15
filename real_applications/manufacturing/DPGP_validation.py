@@ -74,7 +74,7 @@ del X_df, y_df, dpm
 
 # Length scales
 # ls = [7, 64, 7, 7.60, 7, 7, 7, 123, 76, 78]
-ls = 8001e4*np.ones(10)
+ls = 1000*np.ones(10)
 
 # Kernels
 se = 1**2 * RBF(length_scale=ls, length_scale_bounds=(0.25, 1e5))
@@ -82,7 +82,7 @@ wn = WhiteKernel(noise_level=0.61**2, noise_level_bounds=(1e-5, 1))
 
 kernel = se + wn
 
-dpgp = DPGP(X_train, y_train, init_K=7, kernel=kernel, DP_max_iter=300)
+dpgp = DPGP(X_train, y_train, init_K=7, kernel=kernel, DP_max_iter=250, plot_conv=True)
 dpgp.train(pseudo_sparse=True)
 
 # predictions
