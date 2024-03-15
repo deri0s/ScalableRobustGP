@@ -134,8 +134,8 @@ ax.set_title(" Clustering performance", fontsize=18)
 if dpgp.K_opt != 1:
     for i, (k, c) in enumerate(zip(enumerate_K, color_iter)):
         ax.plot(date_time[dpgp.indices[k]], y_raw[dpgp.indices[k]],
-                'o',color=c, markersize = 8, label='Noise Level '+str(k))
-ax.plot(date_time, mu, color="green", linewidth = 2, label=" DPGP")
+                'o',color=c, markersize = 8, label='Noise level '+str(k))
+ax.plot(date_time, mu, color="green", linewidth = 2, label="DPGP")
 ax.set_xlabel(" Date-time", fontsize=14)
 ax.set_ylabel(" Fault density", fontsize=14)
 plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
