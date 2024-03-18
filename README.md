@@ -97,6 +97,10 @@ Notice that the data shows high peaks, noise bursts, and slow and rapid trends.
 ### The Challenge:
 Identify the relationship between the furnace parameters and product quality (fault density). The model inputs are obtained from sensors located at the furnace. The model targets are obtained from the scanner's readings.
 
+The relationship will be used as a decision tool to inform operators when the furnace process is responsible for an increase in the fault density.
+
+The operators will use the model's predictions to design operational strategies that increase furnace efficiency.
+
 ### Solutions
 One way to address such a problem is to use process information to develop pre-processing pipelines that condition the fault density data. Later, use a Machine Learning regression approach to estimate the latent furnace process.
 
