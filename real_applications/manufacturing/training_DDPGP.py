@@ -57,15 +57,15 @@ READ
 Model parameters and initialisation values from the config.yml file
 """
 
-with open(paths.get_config_path('config1.yml'), 'r') as f:
+with open(paths.get_config_path('config.yml'), 'r') as f:
     config = yaml.safe_load(f)
 
 # Train and test data
-step = 2446
-N_gps = 1
+step = config['N_local']
+N_gps = config['NGPs']
 N, D = np.shape(X)
 
-start_train = y_df[y_df['Time stamp'] == '2020-07-26'].index[0]
+start_train = 0
 end_train = start_train + int(N_gps * step)
 end_test = end_train + 400
 
@@ -100,16 +100,18 @@ DPGP regression
 # Save memory
 del X_df, y_df, dpm
 
-dpgp = DDPGP(X_train, y_train, N_GPs=N_gps, init_K=7,DP_max_iter=300,
+dpgp = DDPGP(X_train, y_train, N_GPs=N_gps,
+             init_K=config['DP_hyper']['init_K'],
+             DP_max_iter=config['DP_hyper']['DP_max_iter'],
              kernel=kernels,
              normalise_y=True, plot_expert_pred=True)
 dpgp.train(pseudo_sparse=True)
 
-# save trained model
-import pickle
+# # save trained model
+# import pickle
 
-with open('DDPGP_NGPs1_config1.pkl','wb') as f:
-    pickle.dump(dpgp,f)
+# with open('DDPGP_NGPs1_config1.pkl','wb') as f:
+#     pickle.dump(dpgp,f)
 
 # predictions
 mu, std, betas = dpgp.predict(X_test)

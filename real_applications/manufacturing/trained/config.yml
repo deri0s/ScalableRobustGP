@@ -2,21 +2,14 @@
 N: 21497
 N_train: 18057
 train_per: 0.84
-test_per: 0.16 # 84% avoids noise burst at the end of data
-N_local: 1128
+test_per: 0.16  # 84% avoids noise burst at the end of data
+N_local: 2256
 NGPs: 6
 kernel: RBF + WhiteKernel
 ignored_regions: []
 DP_hyper:
   init_K: 7
-  DP_max_iter:
-    - [300]
-    - [300]
-    - [300]
-    - [300]
-    - [300]
-    - [300]
-    - [300]
+  DP_max_iter: 300
 
 length_scale:
   initial:
