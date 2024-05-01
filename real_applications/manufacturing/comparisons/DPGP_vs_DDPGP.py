@@ -55,16 +55,16 @@ DPGP regression
 del X_df, y_df, dpm
 
 # Length scales
-ls = [7, 64, 7, 7.60, 7, 7, 7, 123, 76, 78]
-# ls = [0.0612, 3.72, 200, 200, 200, 200, 4.35, 0.691, 200, 200]
+ls = 1e4
 
 # Kernels
-se = 1**2 * RBF(length_scale=ls, length_scale_bounds=(0.5, 200))
+se = 1**2 * RBF(length_scale=ls, length_scale_bounds=(0.5, 1e5))
 wn = WhiteKernel(noise_level=0.61**2, noise_level_bounds=(1e-5, 1))
 
 kernel = se + wn
 
-dpgp = DPGP(X_train, y_train, init_K=7, kernel=kernel, plot_conv=True)
+dpgp = DPGP(X_train, y_train, init_K=7, kernel=kernel, DP_max_iter=260,
+            plot_conv=True)
 dpgp.train(pseudo_sparse=True)
 # predictions
 mu, std = dpgp.predict(X_test)
@@ -73,7 +73,8 @@ mu, std = dpgp.predict(X_test)
 DDPGP regression
 """
 N_gps = 2
-dgp = DDPGP(X_train, y_train, N_GPs=N_gps, init_K=7, kernel=kernel)
+dgp = DDPGP(X_train, y_train, N_GPs=N_gps, init_K=7, kernel=kernel,
+            DP_max_iter=260)
 dgp.train(pseudo_sparse=True)
 # predictions
 mud, stdd, betas = dgp.predict(X_test)
@@ -97,7 +98,7 @@ ax.fill_between(date_time,
 ax.fill_between(date_time,
                 mud + 3*stdd, mud - 3*stdd,
                 alpha=0.5, color='grey',
-                label='Confidence \nBounds (DPGP)')
+                label='Confidence \nBounds (DDPGP)')
 ax.plot(date_time, y_raw, color='black', label='Raw')
 ax.plot(date_time, y_rect, color='blue', label='Filtered')
 ax.plot(date_time, mu, color="red", linewidth = 2.5, label="DPGP")
