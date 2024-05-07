@@ -1,28 +1,32 @@
-import paths
+import os
+import sys
+from pathlib import Path
+import pandas as pd
+
+# Import data
+file_name = 'Synthetic.xlsx'
+FILE = Path(__file__).resolve()
+root = FILE.parents[2]
+path = root / 'examples/sine_function' / file_name
+df = pd.read_excel(file_name, sheet_name='Training')
+
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
-from sklearn.metrics import mean_squared_error
-from sklearn.gaussian_process.kernels import RBF, WhiteKernel
-from models.DGP import DistributedGP as DGP
-from models.DDPGP import DistributedDPGP as DDPGP
 
 from jax import jit
-import jax.numpy as jnp
-import jax.random as jr
 from jaxtyping import install_import_hook
-import matplotlib as mpl
 import matplotlib.pyplot as plt
-import optax as ox
 
 with install_import_hook("gpjax", "beartype.beartype"):
     import gpjax as gpx
 
 plt.close('all')
 
-# Read excel file
-file_name = paths.get_synthetic_path('Synthetic.xlsx')
-df = pd.read_excel(file_name, sheet_name='Training')
+from pathlib import Path
+import pandas as pd
+
+# Read data
 x_test_df = pd.read_excel(file_name, sheet_name='Testing')
 labels_df = pd.read_excel(file_name, sheet_name='Real labels')
 
@@ -30,7 +34,7 @@ labels_df = pd.read_excel(file_name, sheet_name='Real labels')
 X = df['X'].values
 Y = df['Y'].values
 N = len(Y)
-xNew = x_test_df['X_star'].values
+xNew = np.vstack(x_test_df['X_star'].values)
 
 # Get real labels
 c0 = labels_df['Noise0'].values
@@ -43,11 +47,17 @@ not_nan = ~np.isnan(labels_df['Noise2'].values)
 c2 = c2[not_nan]
 c2 = [int(i) for i in c2]
 indices = [c0, c1, c2]
-    
+
+# standardise data
+from sklearn.preprocessing import StandardScaler as ss
+
+# Y = ss.fit_transform(np.vstack(Y))
+X=np.vstack(X)
+y_mu = np.mean(Y)
+y_std = np.std(Y)
+Y = np.vstack((Y - y_mu) / y_std)
 D = gpx.Dataset(X=X, y=Y)
 
-# ! The following covariance function only works for K=2. Use a
-# ! single kernel or add the K=k number of kernels, otherwise
 # Covariance functions
 kernel = gpx.kernels.RBF()
 meanf = gpx.mean_functions.Zero()
@@ -80,7 +90,15 @@ std = predictive_dist.stddev()
 #-----------------------------------------------------------------------------
 plt.figure()
 
-plt.plot(xNew, Y, "x", label="Observations", color='black', alpha=0.5)
+plt.plot(X, Y, "x", label="Observations", color='black', alpha=0.5)
+plt.fill_between(
+    xNew.squeeze(),
+    mu - 2 * std,
+    mu + 2 * std,
+    alpha=0.2,
+    label="Two sigma",
+    color='lightcoral',
+)
 # plt.plot(xNew, F, color='black', linewidth = 4, label='Sine function')
 plt.plot(xNew, mu, color='red', linestyle='-', linewidth = 4,
          label='DDPGP')
