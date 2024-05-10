@@ -88,7 +88,7 @@ opt_posterior, history = gpx.fit(
     train_data=D,
     optim=ox.adamw(learning_rate=1e-2),
     num_iters=500,
-    key=jr.key(123),
+    key=jr.key(123)
 )
 
 # Model convergence
