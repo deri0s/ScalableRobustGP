@@ -18,7 +18,7 @@ Diego Echeverria Rios & P.L.Green
 """
 
 
-class DirichletProcessSparseGaussianProcess(gpx):
+class DirichletProcessSparseGaussianProcess():
     def __init__(self, X, Y, init_K,
                  kernel=gpx.kernels.RBF(),
                  mu0 = gpx.mean_functions.Zero(),
@@ -57,13 +57,15 @@ class DirichletProcessSparseGaussianProcess(gpx):
                     self.Y_std = np.std(self.Y)
                     self.Y = (self.Y - self.Y_mu) / self.Y_std
 
+                print('forma: ', np.shape(self.X), ' ', np.shape(self.Y))
+
                 # Assemble training dataset
-                D = gpx.Dataset(X=X, y=Y)
+                D = gpx.Dataset(X=self.X, y=self.Y)
                 
                 # Initialise a GPR class
                 # Note: normalize_y always set to False so the SKL GPR class
                 # does not return unormalised predictions
-                self.prior = self.gps.Prior(mu0, kernel)
+                self.prior = gpx.gps.Prior(mu0, kernel)
 
                 # Likelihood
                 likelihood = gpx.likelihoods.Gaussian(num_datapoints=D.n)
@@ -73,13 +75,13 @@ class DirichletProcessSparseGaussianProcess(gpx):
 
                 # If n_inducing points is close to N, the model will not return
                 # accurate solutions.
-                z = np.linspace(X.min(), X.max(), n_inducing).reshape(-1, 1)
+                z = np.linspace(self.X.min(), self.X.max(), n_inducing).reshape(-1, 1)
 
-                self.q = self.variational_families.CollapsedVariationalGaussian(
+                self.q = gpx.variational_families.CollapsedVariationalGaussian(
                             posterior=self.posterior,
                             inducing_inputs=z)
 
-                elbo = self.objectives.CollapsedELBO(negative=True)
+                elbo = gpx.objectives.CollapsedELBO(negative=True)
                 self.elbo = jit(elbo)
                 
                 # Estimate the latent function values at observation
@@ -88,9 +90,9 @@ class DirichletProcessSparseGaussianProcess(gpx):
                 # self.the_very_first_hyper = self.kernel_
 
                 # Training
-                opt_posterior, self.history = super().fit(
-                    model=q,
-                    objective=elbo,
+                opt_posterior, self.history = gpx.fit(
+                    model=self.q,
+                    objective=self.elbo,
                     train_data=D,
                     optim=ox.adamw(learning_rate=1e-2),
                     num_iters=500,
@@ -341,13 +343,30 @@ class DirichletProcessSparseGaussianProcess(gpx):
                 
             K0 = self.init_K
             self.resp = resp0
+
+            # Assemble training dataset
+            D0 = gpx.Dataset(X=X0, y=Y0)
             
             # The regression step
+            likelihood = gpx.likelihoods.Gaussian(num_datapoints=D0.n)
+
+            # posterior
+            self.posterior = self.prior * likelihood
+
+            # If n_inducing points is close to N, the model will not return
+            # accurate solutions.
+            z = np.linspace(self.X.min(), self.X.max(),
+                            int(len(Y0)*0.15)).reshape(-1, 1)
+
+            self.q = self.variational_families.CollapsedVariationalGaussian(
+                        posterior=self.posterior,
+                        inducing_inputs=z)
+            
             # self.kernel.theta = self.hyperparameters
-            opt_posterior, self.history = super().fit(
+            opt_posterior, self.history = gpx.fit(
                 model=self.q,
                 objective=self.elbo,
-                train_data=gpx.Dataset(X=X0, y=Y0),
+                train_data=D0,
                 optim=ox.adamw(learning_rate=1e-2),
                 num_iters=500,
                 key=jr.key(123)
@@ -405,7 +424,7 @@ class DirichletProcessSparseGaussianProcess(gpx):
                 self.stds[k] = self.stds[k] * self.Y_std
                              
         # Update the optimum hyperparameters
-        self.opt_posterior, self.history = super().fit(
+        self.opt_posterior, self.history = gpx.fit(
             model=self.q,
             objective=self.elbo,
             train_data=gpx.Dataset(X=X0, y=Y0),
