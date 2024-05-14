@@ -6,9 +6,6 @@ file_name = paths.get_synthetic_path('Synthetic.xlsx')
 df = pd.read_excel(file_name, sheet_name='Training')
 
 import numpy as np
-import matplotlib.pyplot as plt
-import pandas as pd
-
 from jax import jit
 from jaxtyping import install_import_hook
 import matplotlib.pyplot as plt
@@ -17,9 +14,6 @@ with install_import_hook("gpjax", "beartype.beartype"):
     import gpjax as gpx
 
 plt.close('all')
-
-from pathlib import Path
-import pandas as pd
 
 # Read data
 x_test_df = pd.read_excel(file_name, sheet_name='Testing')
@@ -43,77 +37,65 @@ c2 = c2[not_nan]
 c2 = [int(i) for i in c2]
 indices = [c0, c1, c2]
 
-# standardise data
-# X = np.vstack(X)
-# y_mu = np.mean(Y)
-# y_std = np.std(Y)
-# Y = np.vstack((Y - y_mu) / y_std)
-
 # Covariance functions
 kernel = gpx.kernels.RBF()
-meanf = gpx.mean_functions.Zero()
-prior = gpx.gps.Prior(mean_function=meanf, kernel=kernel)
 
 # The DPGP model
 z = int(len(Y)*0.15)
-rgp = DPSGP(X, Y, init_K=7, kernel=kernel, n_inducing=20, normalise_y=True)
-# rgp.train()
-# mu, std = rgp.predict(xNew)
-# print('DPGP init stds: ', rgp.init_pies)
-# print('DPGP init pies: ', rgp.init_sigmas)
+rgp = DPSGP(X, Y, init_K=7, kernel=kernel, n_inducing=30, normalise_y=True,
+            plot_sol=True, plot_conv=True)
+rgp.train()
+mu, std, inducing_points = rgp.predict(xNew)
 
-# ### CALCULATING THE OVERALL MSE
-# from sklearn.metrics import mean_squared_error
+print('DPGP init stds: ', rgp.init_pies)
+print('DPGP init pies: ', rgp.init_sigmas)
 
-# F = 150 * xNew * np.sin(xNew)
-# print("Mean Squared Error (DPSGP)   : ", mean_squared_error(mu, F))
+### CALCULATING THE OVERALL MSE
+from sklearn.metrics import mean_squared_error
 
-# #-----------------------------------------------------------------------------
-# # REGRESSION PLOT
-# #-----------------------------------------------------------------------------
-# plt.figure()
-# advance = 0
-# for k in range(N_GPs):
-#     plt.axvline(xNew[int(advance)], linestyle='--', linewidth=3,
-#                 color='lime')
-#     advance += step
+F = 150 * xNew * np.sin(xNew)
+print("Mean Squared Error (DPSGP)   : ", mean_squared_error(mu, F))
+
+#-----------------------------------------------------------------------------
+# REGRESSION PLOT
+#-----------------------------------------------------------------------------
+plt.figure()
     
-# plt.plot(xNew, F, color='black', linewidth = 4, label='Sine function')
-# plt.plot(xNew, muGP, color='blue', linewidth = 4,
-#           label='DPGP')
-# plt.plot(xNew, muMix, color='red', linestyle='-', linewidth = 4,
-#           label='DDPGP')
-# plt.title('Regression Performance', fontsize=20)
-# plt.xlabel('x', fontsize=16)
-# plt.ylabel('f(x)', fontsize=16)
-# plt.legend(prop={"size":20})
+plt.plot(xNew, F, color='black', linewidth = 4, label='Sine function')
+plt.plot(xNew, mu, color='red', linewidth = 4,
+         label='DPGP')
+plt.title('Regression Performance', fontsize=20)
+plt.xlabel('x', fontsize=16)
+plt.ylabel('f(x)', fontsize=16)
+plt.legend(prop={"size":20})
 
-# # ----------------------------------------------------------------------------
-# # CONFIDENCE BOUNDS
-# # ----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
+# CONFIDENCE BOUNDS
+# ----------------------------------------------------------------------------
 
-# color_iter = ['green', 'orange', 'red']
-# enumerate_K = [i for i in range(rgp.K_opt)]
+color_iter = ['green', 'orange', 'red']
+enumerate_K = [i for i in range(rgp.K_opt)]
 
-# plt.figure()
-# plt.fill_between(xNew,
-#                  muMix + 3*stdMix, muMix - 3*stdMix,
-#                  alpha=0.5,color='lightgreen',
-#                  label='Confidence \nBounds (DDPGP)')
+plt.figure()
+plt.plot(xNew, F, color='black', linestyle='-', linewidth = 4,
+         label='$f(x)$')
+plt.fill_between(
+    xNew.squeeze(),
+    mu - 2 * std,
+    mu + 2 * std,
+    alpha=0.2,
+    label="Two sigma",
+    color='lightcoral',
+)
 
-# plt.fill_between(xNew,
-#                  muGP + 3*stdGP, muGP - 3*stdGP,
-#                  alpha=0.5,color='green',
-#                  label='Confidence \nBounds (DPGP)')
-
-# nl = ['Noise level 0', 'Noise level 1', 'Noise level 2']
-# for i, (k, c) in enumerate(zip(enumerate_K, color_iter)):
-#     plt.plot(X[rgp.indices[k]], Y[rgp.indices[k]], 'o',color=c,
-#              markersize = 9, label=nl[k])
+nl = ['Noise level 0', 'Noise level 1', 'Noise level 2']
+for i, (k, c) in enumerate(zip(enumerate_K, color_iter)):
+    plt.plot(X[rgp.indices[k]], Y[rgp.indices[k]], 'o',color=c,
+             markersize = 9, label=nl[k])
     
-# plt.plot(xNew, muMix, linewidth=2.5, color='green', label='DDPGP')
-# plt.xlabel('x', fontsize=16)
-# plt.ylabel('f(x)', fontsize=16)
-# plt.legend(prop={"size":20})
+plt.plot(xNew, mu, linewidth=4, color='green', label='DDPGP')
+plt.xlabel('x', fontsize=16)
+plt.ylabel('f(x)', fontsize=16)
+plt.legend(prop={"size":20})
 
-# plt.show()
+plt.show()

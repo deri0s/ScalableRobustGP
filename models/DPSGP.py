@@ -34,7 +34,7 @@ class DirichletProcessSparseGaussianProcess():
                 self.X = np.vstack(X)           # Inputs always vstacked
                 self.Y = np.vstack(Y)           # Targets always vstacked
                 self.N = len(Y)                 # No. training points
-                self.D = np.shape(self.X)[1]    # Dimension of inputs
+                # self.D = np.shape(self.X)[1]    # Dimension of inputs (not used for now)
                 self.N_iter = N_iter            # Max number of iterations (DPGP)
                 self.DP_max_iter = DP_max_iter  # Max number of iterations (DP)
                 self.plot_conv = plot_conv
@@ -46,10 +46,6 @@ class DirichletProcessSparseGaussianProcess():
                 # Initialisation of the GPR attributes
                 self.kernel = kernel
                 
-                # Number of hyper samples from a Uniform distribution with
-                # lower and upper bound equal to the hyperparameter bounds
-                # self.n_restarts = 1
-                
                 self.normalise_y = normalise_y
                 # Standardise data if specified
                 if self.normalise_y is True:
@@ -57,18 +53,16 @@ class DirichletProcessSparseGaussianProcess():
                     self.Y_std = np.std(self.Y)
                     self.Y = (self.Y - self.Y_mu) / self.Y_std
 
-                print('forma: ', np.shape(self.X), ' ', np.shape(self.Y))
-
                 # Assemble training dataset
-                D = gpx.Dataset(X=self.X, y=self.Y)
+                self.data = gpx.Dataset(X=self.X, y=self.Y)
                 
                 # Initialise a GPR class
                 # Note: normalize_y always set to False so the SKL GPR class
                 # does not return unormalised predictions
-                self.prior = gpx.gps.Prior(mu0, kernel)
+                self.prior = gpx.gps.Prior(mean_function=mu0, kernel=self.kernel)
 
                 # Likelihood
-                likelihood = gpx.likelihoods.Gaussian(num_datapoints=D.n)
+                likelihood = gpx.likelihoods.Gaussian(num_datapoints=self.data.n)
 
                 # posterior
                 self.posterior = self.prior * likelihood
@@ -84,23 +78,18 @@ class DirichletProcessSparseGaussianProcess():
                 elbo = gpx.objectives.CollapsedELBO(negative=True)
                 self.elbo = jit(elbo)
                 
-                # Estimate the latent function values at observation
-                # points to initialise the residuals
-                # self.fit(self.X, self.Y)
-                # self.the_very_first_hyper = self.kernel_
-
                 # Training
                 opt_posterior, self.history = gpx.fit(
                     model=self.q,
                     objective=self.elbo,
-                    train_data=D,
+                    train_data=self.data,
                     optim=ox.adamw(learning_rate=1e-2),
                     num_iters=500,
                     key=jr.key(123)
                 )
 
                 # Predictions
-                latent_dist = opt_posterior(X, train_data=D)
+                latent_dist = opt_posterior(X, train_data=self.data)
                 predictive_dist = opt_posterior.posterior.likelihood(latent_dist)
 
                 # ! Always vstack the predictions and not the errors
@@ -135,7 +124,7 @@ class DirichletProcessSparseGaussianProcess():
         plt.ylabel('log-likelihood', fontsize=17)
         self.convergence = ll
         
-    def plot_solution(self, K, indices, mu):
+    def plot_solution(self, K, indices, mu, iter):
         color_iter = ['lightgreen', 'orange','red', 'brown','black']
 
         enumerate_K = [i for i in range(K)]
@@ -147,7 +136,7 @@ class DirichletProcessSparseGaussianProcess():
         plt.rc('ytick', labelsize=14)
         
         fig.autofmt_xdate()
-        ax.set_title(" Clustering performance", fontsize=18)
+        ax.set_title(" Clustering performance, Iteration "+str(iter), fontsize=18)
         if K != 1:
             for i, (k, c) in enumerate(zip(enumerate_K, color_iter)):
                 ax.plot(self.x_axis[indices[k]], self.Y[indices[k]],
@@ -168,7 +157,7 @@ class DirichletProcessSparseGaussianProcess():
 
         temp_sum = 0
         for k in range(K):
-            temp_sum += pies[k] * mvn.pdf(y[:,0], f[:], sigmas[k]**2)
+            temp_sum += pies[k] * mvn.pdf(y, f, sigmas[k]**2)
         loglikelihood = temp_sum
         return loglikelihood
         
@@ -241,61 +230,77 @@ class DirichletProcessSparseGaussianProcess():
         Y0 = Y[indices[0]]
     
         return indices, X0, Y0, resp[0], pies, stds, K_opt
-                                                    
-    def predict(self, X_star):
-        """
-            The OMGP predictive distribution
-            
-            Returns
-            -------
-            
-            - y_star_mean: The predicitive mean
-            
-            - y_star_sdt: The predictive std
-        """
     
-        # The covariance matrix using the estimated hyperparameters
-        self.K = self.kernel_(self.X)
-        self.N_star = len(X_star)
-        
-        self.sigma = np.sqrt(np.exp(self.kernel_.theta[-1]))
-    
-        # Find K_star matrix
-        X_star = np.vstack(X_star)
-        K_star = self.kernel_(self.X, X_star)
-        
-        # Responsibilities matrix
-        R = np.eye(self.N)*((1/self.sigma**2)*self.resp)
-        
-        # Jitter term that prevents R+J to be il-conditioned
-        J = 1e-7*np.identity(self.N)
-        invR = np.linalg.inv(R + J)
-        
-        # Jitter term that prevents an il-conditioned covariance matrix
-        J2 = np.identity(self.N_star) * self.sigma**2
-        Ic = J2 + self.kernel_(X_star, X_star)
-        
-        # Gram matrix that acounts for the noise of each observation
-        KR = self.K + invR
-        invKR = np.linalg.inv(KR)
-    
-        # Predictive mean, variance and std
-        y_star_mean = K_star.T @ invKR @ self.Y
-        y_star_cov = Ic - K_star.T @ invKR @ K_star
-        y_star_std = np.sqrt(np.diag(y_star_cov))
-        
-        # Check that the stds are non-negative
-        if all(i >= 0 for i in y_star_std) == False:
-            print('The covariance matrix is ill-conditioned')
-            
+    def predict(self, X_test):
+        latent_dist = self.opt_posterior(X_test, self.data)
+        predictive_dist = self.opt_posterior.posterior.likelihood(latent_dist)
+        inducing_points = self.opt_posterior.inducing_inputs
+
+        muf = predictive_dist.mean()
+        stdf = predictive_dist.stddev()
+
         # Return the un-standardised calculations if required
         if self.normalise_y is True:
-            y_star_mean = self.Y_std * y_star_mean + self.Y_mu
-            y_star_std = self.Y_std * y_star_std
-                
-        return y_star_mean[:,0], y_star_std
+            mu = self.Y_std * muf + self.Y_mu
+            std = self.Y_std * stdf
 
-    def train(self, tol=12, pseudo_sparse=False):
+        return mu, std, inducing_points
+
+                                                    
+    # def predict(self, X_star):
+    #     """
+    #         The OMGP predictive distribution
+            
+    #         Returns
+    #         -------
+            
+    #         - y_star_mean: The predicitive mean
+            
+    #         - y_star_sdt: The predictive std
+    #     """
+    
+    #     # The covariance matrix using the estimated hyperparameters
+    #     self.K = self.kernel_(self.X)
+    #     self.N_star = len(X_star)
+        
+    #     self.sigma = np.sqrt(np.exp(self.kernel_.theta[-1]))
+    
+    #     # Find K_star matrix
+    #     X_star = np.vstack(X_star)
+    #     K_star = self.kernel_(self.X, X_star)
+        
+    #     # Responsibilities matrix
+    #     R = np.eye(self.N)*((1/self.sigma**2)*self.resp)
+        
+    #     # Jitter term that prevents R+J to be il-conditioned
+    #     J = 1e-7*np.identity(self.N)
+    #     invR = np.linalg.inv(R + J)
+        
+    #     # Jitter term that prevents an il-conditioned covariance matrix
+    #     J2 = np.identity(self.N_star) * self.sigma**2
+    #     Ic = J2 + self.kernel_(X_star, X_star)
+        
+    #     # Gram matrix that acounts for the noise of each observation
+    #     KR = self.K + invR
+    #     invKR = np.linalg.inv(KR)
+    
+    #     # Predictive mean, variance and std
+    #     y_star_mean = K_star.T @ invKR @ self.Y
+    #     y_star_cov = Ic - K_star.T @ invKR @ K_star
+    #     y_star_std = np.sqrt(np.diag(y_star_cov))
+        
+    #     # Check that the stds are non-negative
+    #     if all(i >= 0 for i in y_star_std) == False:
+    #         print('The covariance matrix is ill-conditioned')
+            
+    #     # Return the un-standardised calculations if required
+    #     if self.normalise_y is True:
+    #         y_star_mean = self.Y_std * y_star_mean + self.Y_mu
+    #         y_star_std = self.Y_std * y_star_std
+                
+    #     return y_star_mean[:,0], y_star_std
+
+    def train(self, tol=12):
         """
             The present algorithm first performs clustering with a 
             Dirichlet Process mixture model (DP method).
@@ -358,9 +363,10 @@ class DirichletProcessSparseGaussianProcess():
             z = np.linspace(self.X.min(), self.X.max(),
                             int(len(Y0)*0.15)).reshape(-1, 1)
 
-            self.q = self.variational_families.CollapsedVariationalGaussian(
-                        posterior=self.posterior,
-                        inducing_inputs=z)
+            self.q = gpx.variational_families.CollapsedVariationalGaussian(
+                posterior=self.posterior,
+                inducing_inputs=z
+                )
             
             # self.kernel.theta = self.hyperparameters
             opt_posterior, self.history = gpx.fit(
@@ -378,7 +384,7 @@ class DirichletProcessSparseGaussianProcess():
             # Update the estimates of the latent function values
             # ! Always vstack mu and not the errors (issues otherwise)
             # Predictions
-            latent_dist = opt_posterior(self.X, train_data=self.D)
+            latent_dist = opt_posterior(self.X, train_data=self.data)
             predictive_dist = opt_posterior.posterior.likelihood(latent_dist)
             self.inducing_points = opt_posterior.inducing_inputs
 
@@ -387,12 +393,12 @@ class DirichletProcessSparseGaussianProcess():
             
             # Compute log-likelihood(s):
             # Model convergence is controlled with the standard GP likelihood
-            lnP[i+1] = self.history[-1]
+            lnP[i+1] = self.history[0]
             print('Training...\n Iteration: ', i, ' tolerance: ', tolerance,
                   ' calculated(GP): ', abs(lnP[i+1] - lnP[i]), '\n')
             
             if self.plot_sol:
-                self.plot_solution(K, index, mu)
+                self.plot_solution(K, index, mu, i)
                 
 
             if abs(lnP[i+1] - lnP[i]) < tolerance:
