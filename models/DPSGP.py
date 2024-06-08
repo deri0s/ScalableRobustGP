@@ -362,6 +362,8 @@ class DirichletProcessSparseGaussianProcess():
             # accurate solutions.
             z = np.linspace(self.X.min(), self.X.max(),
                             int(len(Y0)*0.15)).reshape(-1, 1)
+            # z = np.linspace(X0.min(), X0.max(),
+            #                 int(len(Y0)*0.15)).reshape(-1, 1)
 
             self.q = gpx.variational_families.CollapsedVariationalGaussian(
                 posterior=self.posterior,
@@ -393,14 +395,13 @@ class DirichletProcessSparseGaussianProcess():
             
             # Compute log-likelihood(s):
             # Model convergence is controlled with the standard GP likelihood
-            lnP[i+1] = self.history[0]
+            lnP[i+1] = -self.elbo(opt_posterior, D0)
             print('Training...\n Iteration: ', i, ' tolerance: ', tolerance,
                   ' calculated(GP): ', abs(lnP[i+1] - lnP[i]), '\n')
             
             if self.plot_sol:
                 self.plot_solution(K, index, mu, i)
                 
-
             if abs(lnP[i+1] - lnP[i]) < tolerance:
                 print('\n Model trained')
                 break

@@ -63,7 +63,7 @@ plt.figure()
     
 plt.plot(xNew, F, color='black', linewidth = 4, label='Sine function')
 plt.plot(xNew, mu, color='red', linewidth = 4,
-         label='DPGP')
+         label='DDPSGP')
 plt.title('Regression Performance', fontsize=20)
 plt.xlabel('x', fontsize=16)
 plt.ylabel('f(x)', fontsize=16)
@@ -93,7 +93,7 @@ for i, (k, c) in enumerate(zip(enumerate_K, color_iter)):
     plt.plot(X[rgp.indices[k]], Y[rgp.indices[k]], 'o',color=c,
              markersize = 9, label=nl[k])
     
-plt.plot(xNew, mu, linewidth=4, color='green', label='DDPGP')
+plt.plot(xNew, mu, linewidth=4, color='green', label='DDPSGP')
 plt.xlabel('x', fontsize=16)
 plt.ylabel('f(x)', fontsize=16)
 plt.legend(prop={"size":20})
