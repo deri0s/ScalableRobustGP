@@ -45,7 +45,7 @@ z = int(len(Y)*0.15)
 rgp = DPSGP(X, Y, init_K=7, kernel=kernel, n_inducing=30, normalise_y=True,
             plot_sol=True, plot_conv=True)
 rgp.train()
-mu, std, inducing_points = rgp.predict(xNew)
+mu, std = rgp.predict(xNew)
 
 print('DPGP init stds: ', rgp.init_pies)
 print('DPGP init pies: ', rgp.init_sigmas)
