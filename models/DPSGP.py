@@ -68,13 +68,17 @@ class DirichletProcessSparseGaussianProcess():
                 self.posterior = self.prior * likelihood
 
                 # Define the training objective
-                negative_mll = gpx.objectives.ConjugateMLL(negative=True)
+                self.negative_mll = gpx.objectives.ConjugateMLL(negative=True)
+
+                print('Before training: ', self.posterior.prior.kernel)
 
                 self.opt_posterior, _ = gpx.fit_scipy(
                                 model=self.posterior,
-                                objective=negative_mll,
+                                objective=self.negative_mll,
                                 train_data=self.data
                             )
+                
+                print('After training: ', self.opt_posterior.prior.kernel)
 
                 # If n_inducing points is close to N, the model will not return
                 # accurate solutions.
@@ -128,7 +132,7 @@ class DirichletProcessSparseGaussianProcess():
         plt.rc('ytick', labelsize=14)
         
         fig.autofmt_xdate()
-        ax.set_title(" Clustering performance, Iteration "+str(iter), fontsize=18)
+        ax.set_title("DPSGP: Clustering performance, Iteration "+str(iter), fontsize=18)
         if K != 1:
             for i, (k, c) in enumerate(zip(enumerate_K, color_iter)):
                 ax.plot(self.x_axis[indices[k]], self.Y[indices[k]],
@@ -322,11 +326,12 @@ class DirichletProcessSparseGaussianProcess():
         lnP[1] = float('inf')
         
         # The log-likelihood(s) with the initial hyperparameters
-        lnP[i] = 1000         # Standard GP
+        lnP[i] = -self.negative_mll(opt_posterior, self.data)
+        # lnP[i] = 0
         
         # Stop if the change in the log-likelihood is no > than 10% of the 
         # log-likelihood evaluated with the initial hyperparameters
-        tolerance = abs(lnP[0]*tol)/100
+        tolerance = abs(lnP[0]*tol)/1000
         
         while i < max_iter:
             # The clustering step
@@ -351,18 +356,19 @@ class DirichletProcessSparseGaussianProcess():
             self.posterior = self.prior * likelihood
 
             # Initialise hyperparameters using the `replace` method
-            hyper = opt_posterior.prior.kernel
-            ls = hyper.lengthscale
-            vr = hyper.variance
+            # hyper = opt_posterior.prior.kernel
+            # ls = hyper.lengthscale
+            # vr = hyper.variance
 
-            self.posterior = self.posterior.replace(
-                prior=self.posterior.prior.replace(
-                    kernel=self.posterior.prior.kernel.replace(
-                        lengthscale=ls,
-                        variance=vr
-                    )
-                )
-            )
+            # Update the GPR initial hyperparameters
+            # self.posterior = self.posterior.replace(
+            #     prior=self.posterior.prior.replace(
+            #         kernel=self.posterior.prior.kernel.replace(
+            #             lengthscale=ls**2,
+            #             variance=vr/2
+            #         )
+            #     )
+            # )
 
             negative_mll = gpx.objectives.ConjugateMLL(negative=True)
             negative_mll(self.posterior, train_data=D0)
@@ -372,9 +378,10 @@ class DirichletProcessSparseGaussianProcess():
                 objective=negative_mll,
                 train_data=D0
             )
-                        
-            # Update the GPR initial hyperparameters
-            # self.hyperparameters = self.kernel_.theta
+
+            print('am: ', opt_posterior.prior.kernel.kernels[0].variance)
+            print('ls: ', opt_posterior.prior.kernel.kernels[0].lengthscale)
+            print('vr: ', opt_posterior.prior.kernel.kernels[1].variance)
             
             # Update the estimates of the latent function values
             # ! Always vstack mu and not the errors (issues otherwise)
@@ -385,16 +392,13 @@ class DirichletProcessSparseGaussianProcess():
 
             mu = np.vstack(predictive_dist.mean())
             errors = self.Y - mu
-            print('\nerrors')
-            for e1, e2 in zip(self.init_errors, errors):
-                print(e1, e2)
             
             # Compute log-likelihood(s):
             # Model convergence is controlled with the standard GP likelihood
-            lnP[i+1] = negative_mll(opt_posterior, D0)
+            lnP[i+1] = -negative_mll(opt_posterior, D0)
             # lnP[i+1] = -self.elbo(opt_posterior, D0)
-            # print('Training...\n Iteration: ', i, ' tolerance: ', tolerance,
-            #       ' calculated(GP): ', abs(lnP[i+1] - lnP[i]), '\n')
+            print('Training...\n Iteration: ', i, ' tolerance: ', tolerance,
+                  ' calculated(GP): ', abs(lnP[i+1] - lnP[i]), '\n')
             
             if self.plot_sol:
                 self.plot_solution(K, index, mu, i)
@@ -411,7 +415,7 @@ class DirichletProcessSparseGaussianProcess():
                         
         # If specified, plot model convergence
         if self.plot_conv:
-            self.plot_convergence(lnP, 'DPGP: Regression step convergence')
+            self.plot_convergence(lnP, 'DPSGP: Regression step convergence')
             
         # Capture and save the estimated parameters
         index, X0, Y0, resp0, pies, stds, K = self.DP(self.X, self.Y,

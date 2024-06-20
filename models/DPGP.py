@@ -329,8 +329,8 @@ class DirichletProcessGaussianProcess(GPR):
             # Compute log-likelihood(s):
             # Model convergence is controlled with the standard GP likelihood
             lnP[i+1] = self.log_marginal_likelihood()
-            print('Training...\n Iteration: ', i, ' tolerance: ', tolerance,
-                  ' calculated(GP): ', abs(lnP[i+1] - lnP[i]), '\n')
+            # print('Training...\n Iteration: ', i, ' tolerance: ', tolerance,
+            #       ' calculated(GP): ', abs(lnP[i+1] - lnP[i]), '\n')
             
             if self.plot_sol:
                 self.plot_solution(K, index, mu)

@@ -7,6 +7,7 @@ df = pd.read_excel(file_name, sheet_name='Training')
 
 import numpy as np
 from jax import jit
+import jax.numpy as jnp
 from jaxtyping import install_import_hook
 import matplotlib.pyplot as plt
 
@@ -37,68 +38,55 @@ c2 = c2[not_nan]
 c2 = [int(i) for i in c2]
 indices = [c0, c1, c2]
 
-"""
-Radial Basis Function
-"""
-import jax
-import jax.numpy as jnp
-from dataclasses import dataclass
-from gpjax.base import static_field
-import jax.random as jr
-import tensorflow_probability.substrates.jax.distributions as tfd
-import tensorflow_probability.substrates.jax.bijectors as tfb
-from gpjax.base import Module, param_field
-
-@dataclass
-class RBF(Module):
-    lengthscale: float = param_field(
-        init=False, bijector=tfb.Softplus(), trainable=True
-    )
-    variance: float = param_field(init=False, bijector=tfb.Softplus(), trainable=True)
-    key: jax.Array = static_field(default_factory=lambda: jr.key(42))
-
-    def __post_init__(self):
-        # Split key into two keys
-        key1, key2 = jr.split(self.key)
-
-        # Sample from Gamma distribution to initialise lengthscale and variance
-        self.lengthscale = tfd.Gamma(0.07, 0.9).sample(seed=key1)
-        self.variance = tfd.Gamma(1e-6,0.7).sample(seed=key2)
-
-    def covariance(self, x: jax.Array, y: jax.Array) -> jax.Array:
-        return self.variance * jnp.exp(-0.5 * ((x - y) / self.lengthscale) ** 2)
-
 # Covariance functions
-se = gpx.kernels.RBF(variance=1, lengthscale=0.9)
+se = gpx.kernels.RBF(variance=1.0, lengthscale=0.8)
+se = se.replace_trainable(variance=False)
 
 # Initialize the White kernel with initial values
 white = gpx.kernels.White(variance=0.05)
 
 # Combine the RBF and White kernels
-K = se + white
-
-# Replace the bijector to enforce bounds on the lengthscale and variance
-# kernel = kernel.replace_bijector(
-#     lengthscale=tfb.Chain([tfb.Softplus(), tfb.Scale(scale=upper - lower), tfb.Shift(lower)])
-# )
-
-# kernel = kernel.replace_trainable(lengthscale=False)
-# kernel = kernel.replace_trainable(variance=False)
+kernel = se + white
 
 # The DPGP model
-rgp = DPSGP(X, Y, init_K=7, kernel=K, n_inducing=30, normalise_y=True,
+z = int(len(Y)*0.15)
+rgp = DPSGP(X, Y, init_K=7, kernel=kernel, n_inducing=30, normalise_y=True,
             plot_sol=True, plot_conv=True)
 rgp.train()
 mu, std = rgp.predict(xNew)
 
-print('DPGP init stds: ', rgp.init_pies)
+# print('DPGP init stds: ', rgp.init_pies)
+# print('DPGP init pies: ', rgp.init_sigmas)
+
+"""
+DPGP
+"""
+from sklearn.gaussian_process.kernels import RBF, WhiteKernel
+from models.DPGP import DirichletProcessGaussianProcess as DPGP
+
+# Covariance functions
+se = 1**2 * RBF(length_scale=0.5, length_scale_bounds=(0.07, 0.9))
+wn = WhiteKernel(noise_level=0.5**2, noise_level_bounds=(1e-6,0.7))
+
+kernel = se + wn
+
+# DPGP
+rgp = DPGP(X, Y, init_K=7, kernel=kernel, normalise_y=True, 
+           plot_sol=False, plot_conv=True)
+rgp.train(pseudo_sparse=True)
+muMix, stdMix = rgp.predict(xNew)
+
+print('\nhyper: \n', rgp.hyperparameters)
+
+print('\nDPGP init stds: ', rgp.init_pies)
 print('DPGP init pies: ', rgp.init_sigmas)
 
 ### CALCULATING THE OVERALL MSE
 from sklearn.metrics import mean_squared_error
 
 F = 150 * xNew * np.sin(xNew)
-print("Mean Squared Error (DPSGP)   : ", mean_squared_error(mu, F))
+print("\nMean Squared Error (DPSGP)   : ", mean_squared_error(mu, F))
+print("Mean Squared Error (DPGP)   : ", mean_squared_error(muMix, F))
 
 #-----------------------------------------------------------------------------
 # REGRESSION PLOT
@@ -108,6 +96,8 @@ plt.figure()
 plt.plot(xNew, F, color='black', linewidth = 4, label='Sine function')
 plt.plot(xNew, mu, color='red', linewidth = 4,
          label='DDPSGP')
+plt.plot(xNew, muMix, color='brown', linewidth = 4,
+         label='DDPGP')
 plt.title('Regression Performance', fontsize=20)
 plt.xlabel('x', fontsize=16)
 plt.ylabel('f(x)', fontsize=16)

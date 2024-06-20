@@ -91,6 +91,10 @@ opt_posterior, history = gpx.fit(
     key=jr.key(123)
 )
 
+print('\nEstimated hyperparameters:',
+      'ls:  ', opt_posterior.posterior.prior.kernel.lengthscale,
+      '\nvar: ', 'ls: ', opt_posterior.posterior.prior.kernel.variance)
+
 # Model convergence
 fig, ax = plt.subplots()
 ax.plot(history, color='red')
