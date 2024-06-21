@@ -39,7 +39,7 @@ c2 = [int(i) for i in c2]
 indices = [c0, c1, c2]
 
 # Covariance functions
-se = gpx.kernels.RBF(variance=1.0, lengthscale=0.8)
+se = gpx.kernels.RBF(variance=1.0, lengthscale=0.5)
 se = se.replace_trainable(variance=False)
 
 # Initialize the White kernel with initial values
@@ -65,8 +65,9 @@ from sklearn.gaussian_process.kernels import RBF, WhiteKernel
 from models.DPGP import DirichletProcessGaussianProcess as DPGP
 
 # Covariance functions
-se = 1**2 * RBF(length_scale=0.5, length_scale_bounds=(0.07, 0.9))
-wn = WhiteKernel(noise_level=0.5**2, noise_level_bounds=(1e-6,0.7))
+se = 1**2 * RBF(length_scale=0.70**2, length_scale_bounds=(0.07, 0.9))
+#                variance
+wn = WhiteKernel(noise_level=0.025, noise_level_bounds=(1e-6,0.7))
 
 kernel = se + wn
 
@@ -76,6 +77,7 @@ rgp = DPGP(X, Y, init_K=7, kernel=kernel, normalise_y=True,
 rgp.train(pseudo_sparse=True)
 muMix, stdMix = rgp.predict(xNew)
 
+print('\nkernel: \n', rgp.kernel_)
 print('\nhyper: \n', rgp.hyperparameters)
 
 print('\nDPGP init stds: ', rgp.init_pies)

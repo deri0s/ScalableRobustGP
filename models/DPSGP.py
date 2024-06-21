@@ -361,8 +361,9 @@ class DirichletProcessSparseGaussianProcess():
             # vr = hyper.variance
 
             # Update the GPR initial hyperparameters
+            # kernels=[K.kernels[0].replace_trainable(variance=False), K.kernels[1]])
             # self.posterior = self.posterior.replace(
-            #     prior=self.posterior.prior.replace(
+            #     prior=self.posterior.prior.kernel.kernels.replace(
             #         kernel=self.posterior.prior.kernel.replace(
             #             lengthscale=ls**2,
             #             variance=vr/2

@@ -60,8 +60,10 @@ class DirichletProcessGaussianProcess(GPR):
                 
                 # Estimate the latent function values at observation
                 # points to initialise the residuals
+                print('\nbefore training: \n', self.kernel)
                 super().fit(self.X, self.Y)
                 self.the_very_first_hyper = self.kernel_
+                print('\nafter training: \n', self.kernel_)
                 # ! Always vstack the predictions and not the errors
                 # (critical error otherwise)
                 mu = np.vstack(super().predict(self.X, return_cov=False))
@@ -320,6 +322,8 @@ class DirichletProcessGaussianProcess(GPR):
             
             # Update the GPR initial hyperparameters
             self.hyperparameters = self.kernel_.theta
+            print('\nIteration: ', str(i))
+            print('kernel: ', self.kernel_)
             
             # Update the estimates of the latent function values
             # ! Always vstack mu and not the errors (issues otherwise)
