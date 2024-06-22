@@ -39,8 +39,9 @@ c2 = [int(i) for i in c2]
 indices = [c0, c1, c2]
 
 # Covariance functions
-se = gpx.kernels.RBF(variance=1.0, lengthscale=0.5)
+se = gpx.kernels.RBF(variance=1.0, lengthscale=0.9)
 se = se.replace_trainable(variance=False)
+se = se.replace_trainable(lengthscale=False)
 
 # Initialize the White kernel with initial values
 white = gpx.kernels.White(variance=0.05)
