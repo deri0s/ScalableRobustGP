@@ -39,9 +39,9 @@ c2 = [int(i) for i in c2]
 indices = [c0, c1, c2]
 
 # Covariance functions
-se = gpx.kernels.RBF(variance=1.0, lengthscale=0.9)
+se = gpx.kernels.RBF(variance=1.0, lengthscale=7.9)
 se = se.replace_trainable(variance=False)
-se = se.replace_trainable(lengthscale=False)
+# se = se.replace_trainable(lengthscale=False)
 
 # Initialize the White kernel with initial values
 white = gpx.kernels.White(variance=0.05)
@@ -49,10 +49,65 @@ white = gpx.kernels.White(variance=0.05)
 # Combine the RBF and White kernels
 kernel = se + white
 
+"""
+Standard GPJAX
+"""
+# Define the GP model
+mu0 = gpx.mean_functions.Zero()
+prior = gpx.gps.Prior(mean_function=mu0, kernel=kernel)
+
+likelihood = gpx.likelihoods.Gaussian(num_datapoints=N)
+
+posterior = prior * likelihood
+
+# Define the training dataset
+# Normalize targets
+y_mean = np.mean(Y)
+y_std = np.std(Y)
+y_normalised = (Y - y_mean) / y_std
+
+train_data = gpx.Dataset(X=np.vstack(X), y=np.vstack(y_normalised))
+
+# Define the training objective
+negative_mll = gpx.objectives.ConjugateMLL(negative=True)
+
+# Train the model
+opt_posterior, _ = gpx.fit_scipy(
+    model=posterior,
+    objective=negative_mll,
+    train_data=train_data
+)
+
+# estimated hyperparameters
+print('am: ', opt_posterior.prior.kernel.kernels[0].variance)
+print('ls: ', opt_posterior.prior.kernel.kernels[0].lengthscale)
+print('vr: ', opt_posterior.prior.kernel.kernels[1].variance)
+
+# Make predictions
+latent_dist = opt_posterior(X, train_data)
+predictive_dist = opt_posterior.likelihood(latent_dist)
+y_pred_gpjax_normalized = predictive_dist.mean()
+sigma_gpjax_normalized = predictive_dist.stddev()
+
+# Unnormalize predictions
+y_pred_gpjax = y_pred_gpjax_normalized * y_std + y_mean
+sigma_gpjax = sigma_gpjax_normalized * y_std
+
+# Plot GPJAX predictions
+plt.figure()
+plt.title("GPJAX Gaussian Process Regressor")
+plt.plot(X, Y, 'b.', markersize=10, label='Training data')
+plt.plot(X, y_pred_gpjax, 'k-', color='red', label='Prediction')
+plt.fill_between(X.ravel(), 
+                 y_pred_gpjax - 1.96 * sigma_gpjax, 
+                 y_pred_gpjax + 1.96 * sigma_gpjax, 
+                 alpha=0.2, color='k')
+plt.legend()
+
 # The DPGP model
-z = int(len(Y)*0.15)
 rgp = DPSGP(X, Y, init_K=7, kernel=kernel, n_inducing=30, normalise_y=True,
             plot_sol=True, plot_conv=True)
+plt.show()
 rgp.train()
 mu, std = rgp.predict(xNew)
 
