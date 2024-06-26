@@ -26,6 +26,7 @@ gp = DPSGP(X, Y, init_K=8,
            gp_model=ExactGP, kernel=prior_cov,
            n_inducing=30, normalise_y=True,
            plot_conv=True, plot_sol=True)
+gp.train()
 plt.show()
 # # Covariance functions
 # se = gpx.kernels.RBF(variance=1.0, lengthscale=7.9)

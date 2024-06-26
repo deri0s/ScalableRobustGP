@@ -8,6 +8,7 @@ from gpytorch.models import ExactGP
 from gpytorch.kernels import RBFKernel as RBF, ScaleKernel
 from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.mlls import ExactMarginalLogLikelihood
+import types
 
 """
 A Robust Sparse Gaussian Process regression aprroach based on Dirichlet Process
@@ -35,6 +36,8 @@ class DirichletProcessSparseGaussianProcess():
                 """
                 
                 # Initialisation of the variables related to the training data
+                self.X_org = np.vstack(X)       # Required for DP clustering
+                self.Y_org = np.vstack(Y)       # Required for DP clustering
                 self.X = torch.tensor(X, dtype=torch.float32)
                 self.Y = Y                      # Targets never vstacked
                 self.N = len(Y)                 # No. training points
@@ -60,6 +63,7 @@ class DirichletProcessSparseGaussianProcess():
                 self.likelihood = likelihood
 
                 # Initialise GP model
+                self.gp_model = gp_model
                 self.model = gp_model(self.X, self.Y, self.likelihood)
 
                 # Assign mean and covariance modules
@@ -73,7 +77,6 @@ class DirichletProcessSparseGaussianProcess():
                     return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
 
                 # Dynamically add the forward method to the model
-                import types
                 self.model.forward = types.MethodType(forward, self.model)
 
                 # Initialize hyperparameters (optional)
@@ -88,10 +91,13 @@ class DirichletProcessSparseGaussianProcess():
 
                 for i in range(100):
                     optimizer.zero_grad()
+                    if i == 1: print('en init: ', self.model(self.X))
                     output = self.model(self.X)
                     loss = -mll(output, self.Y)
                     loss.backward()
                     optimizer.step()
+
+                self.mll_eval = loss.detach().numpy()
 
                 # Print the estimated hyperparameters
                 print("Lengthscale:", self.model.covar_module.base_kernel.lengthscale.item())
@@ -106,7 +112,7 @@ class DirichletProcessSparseGaussianProcess():
                     mu = observed_pred.mean
                 
                 # Initialise the residuals and initial GP hyperparameters
-                self.init_errors = mu - self.Y
+                self.init_errors = mu.numpy() - self.Y_org
                 
                 # Plot solution
                 self.x_axis = np.linspace(0, len(Y), len(Y))
@@ -122,12 +128,7 @@ class DirichletProcessSparseGaussianProcess():
                     ax.set_ylabel(" Fault density", fontsize=14)
                     plt.legend(loc=0, prop={"size":18}, facecolor="white",
                                 framealpha=1.0)
-                    
-    def forward(self, x):
-        mean_x = self.mu0(x)
-        covar_x = self.kernel(x)
-        return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
-                
+                                    
     def plot_convergence(self, lnP, title):
         plt.figure()
         ll = lnP[~np.all(lnP== 0.0, axis=1)]
@@ -280,7 +281,6 @@ class DirichletProcessSparseGaussianProcess():
         """
         
         # Initialise variables and parameters
-        opt_posterior = self.opt_posterior
         errors = self.init_errors   # The residuals 
         K0 = self.init_K            # K upper bound
         max_iter = self.N_iter      # Prevent infinite loop
@@ -289,16 +289,17 @@ class DirichletProcessSparseGaussianProcess():
         lnP[1] = float('inf')
         
         # The log-likelihood(s) with the initial hyperparameters
-        lnP[i] = -self.negative_mll(opt_posterior, self.data)
-        # lnP[i] = 0
+        lnP[i] = self.mll_eval
         
         # Stop if the change in the log-likelihood is no > than 10% of the 
         # log-likelihood evaluated with the initial hyperparameters
-        tolerance = abs(lnP[0]*tol)/1000
+        tolerance = abs(lnP[0]*tol)/100
         
         while i < max_iter:
-            # The clustering step
-            index, X0, Y0, resp0, pies, stds, K = self.DP(self.X, self.Y,
+            """
+            CLUSTERING
+            """
+            index, X0, Y0, resp0, pies, stds, K = self.DP(self.X_org, self.Y_org,
                                                           errors, K0)
             
             # In case I want to know the initial mixure parameters
@@ -309,46 +310,67 @@ class DirichletProcessSparseGaussianProcess():
             K0 = self.init_K
             self.resp = resp0
 
-            # Assemble training dataset
-            D0 = gpx.Dataset(X=X0, y=Y0)
-            
-            # The regression step
-            likelihood = gpx.likelihoods.Gaussian(num_datapoints=D0.n)
+            """
+            REGRESSION
+            """
+            # Assemble training data
+            X0 = torch.tensor(X0[:,0], dtype=torch.float32)
+            Y0 = torch.tensor(Y0[:,0], dtype=torch.float32)
 
-            # posterior
-            self.posterior = self.prior * likelihood
+            gp = self.gp_model(X0, Y0, self.likelihood)
+            gp.mean_module  = self.model.mean_module
+            gp.covar_module = self.model.covar_module
 
-            # Initialise hyperparameters
+            def forward(self, x):
+                mean_x = self.mean_module(x)
+                covar_x = self.covar_module(x)
+                return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
 
-            negative_mll = gpx.objectives.ConjugateMLL(negative=True)
-            negative_mll(self.posterior, train_data=D0)
+            # Dynamically add the forward method to the model
+            gp.forward = types.MethodType(forward, gp)
 
-            opt_posterior, self.history = gpx.fit_scipy(
-                model=self.posterior,
-                objective=negative_mll,
-                train_data=D0
-            )
+            # Initialize hyperparameters
+            ls = self.model.covar_module.base_kernel.lengthscale.item()
+            gp.covar_module.base_kernel.lengthscale = ls
+            self.likelihood.noise = self.likelihood.noise.item()
 
-            print('am: ', opt_posterior.prior.kernel.kernels[0].variance)
-            print('ls: ', opt_posterior.prior.kernel.kernels[0].lengthscale)
-            print('vr: ', opt_posterior.prior.kernel.kernels[1].variance)
-            
-            # Update the estimates of the latent function values
-            # ! Always vstack mu and not the errors (issues otherwise)
+            # Train model
+            gp.train()
+            self.likelihood.train()
+
+            optimizer = torch.optim.Adam(gp.parameters(), lr=0.1)
+            mll = ExactMarginalLogLikelihood(self.likelihood, gp)
+
+            for conteo in range(100):
+                optimizer.zero_grad()
+                output = gp(X0)
+                loss = -mll(output, Y0)
+                loss.backward()
+                optimizer.step()
+
+            self.mll_eval = loss
+
             # Predictions
-            latent_dist = opt_posterior(self.X, train_data=self.data)
-            predictive_dist = opt_posterior.likelihood(latent_dist)
-            # self.inducing_points = opt_posterior.inducing_inputs
+            gp.eval()
+            self.likelihood.eval()
+            with torch.no_grad(), gpytorch.settings.fast_pred_var():
+                observed_pred = self.likelihood(gp(self.X))
 
-            mu = np.vstack(predictive_dist.mean())
-            errors = self.Y - mu
+                # ! Always vstack mu and not the errors (issues otherwise)
+                pred_mean = observed_pred.mean
+                mu = np.vstack(pred_mean.numpy())
+
+            errors = self.Y_org - mu
             
-            # Compute log-likelihood(s):
             # Model convergence is controlled with the standard GP likelihood
-            lnP[i+1] = -negative_mll(opt_posterior, D0)
-            # lnP[i+1] = -self.elbo(opt_posterior, D0)
+            lnP[i+1] = loss.detach().numpy()
+
             print('Training...\n Iteration: ', i, ' tolerance: ', tolerance,
                   ' calculated(GP): ', abs(lnP[i+1] - lnP[i]), '\n')
+            # Print the estimated hyperparameters
+            print("Lengthscale:", self.model.covar_module.base_kernel.lengthscale.item())
+            print("Outputscale:", self.model.covar_module.outputscale.item())
+            print("Noise:", self.likelihood.noise.item())
             
             if self.plot_sol:
                 self.plot_solution(K, index, mu, i)
