@@ -20,8 +20,9 @@ Diego Echeverria Rios & P.L.Green
 """
 
 
-class DirichletProcessSparseGaussianProcess(ExactGP):
+class DirichletProcessSparseGaussianProcess():
     def __init__(self, X, Y, init_K,
+                 gp_model=ExactGP,
                  mu0 = gpytorch.means.ConstantMean(),
                  kernel=RBF(),
                  likelihood=GaussianLikelihood(),
@@ -34,95 +35,75 @@ class DirichletProcessSparseGaussianProcess(ExactGP):
                 """
                 
                 # Initialisation of the variables related to the training data
-                self.X = torch.tensor(np.vstack(X), dtype=torch.float32)
-                self.Y = np.vstack(Y)           # Targets always vstacked
+                self.X = torch.tensor(X, dtype=torch.float32)
+                self.Y = Y                      # Targets never vstacked
                 self.N = len(Y)                 # No. training points
                 self.D = self.X.dim()           # No. Dimensions
+                self.normalise_y = normalise_y  # Normalise data
                 self.N_iter = N_iter            # Max number of iterations (DPGP)
                 self.DP_max_iter = DP_max_iter  # Max number of iterations (DP)
                 self.plot_conv = plot_conv
                 self.plot_sol = plot_sol
                 
                 # The upper bound of the number of Gaussian noise sources
-                self.init_K = init_K            
-                
-                # Initialisation of the GPR attributes
-                self.mu0 = mu0
-                self.kernel = ScaleKernel(RBF())
+                self.init_K = init_K
 
-                def forward(self, x):
-                    mean_x = self.mu0(x)
-                    covar_x = self.kernel(x)
-                    return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
-                
-                self.normalise_y = normalise_y
                 # Standardise data if specified
                 if self.normalise_y is True:
                     self.Y_mu = np.mean(self.Y)
                     self.Y_std = np.std(self.Y)
                     self.Y = (self.Y - self.Y_mu) / self.Y_std
 
-                # convert to tensor for torch
+                # convert y to tensor for torch
                 self.Y = torch.tensor(self.Y, dtype=torch.float32)
-                
-                # Initialise a GPR class
+
                 self.likelihood = likelihood
-                model = super(DirichletProcessSparseGaussianProcess, self).__init__(self.X, self.Y, likelihood)
+
+                # Initialise GP model
+                self.model = gp_model(self.X, self.Y, self.likelihood)
+
+                # Assign mean and covariance modules
+                self.model.mean_module = mu0
+                self.model.covar_module = kernel
+
+                # Define the forward method
+                def forward(self, x):
+                    mean_x = self.mean_module(x)
+                    covar_x = self.covar_module(x)
+                    return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
+
+                # Dynamically add the forward method to the model
+                import types
+                self.model.forward = types.MethodType(forward, self.model)
 
                 # Initialize hyperparameters (optional)
-                model.kernel.base_kernel.lengthscale = 0.9
-                likelihood.noise = 0.05
+                self.likelihood.noise = 0.05
 
-                # Training
-                super.train()
-                likelihood.train()
-                optimizer = torch.optim.Adam(super.parameters(), lr=0.1)
-                mll = ExactMarginalLogLikelihood(likelihood, model)
+                # Train model
+                self.model.train()
+                self.likelihood.train()
+
+                optimizer = torch.optim.Adam(self.model.parameters(), lr=0.1)
+                mll = ExactMarginalLogLikelihood(self.likelihood, self.model)
 
                 for i in range(100):
                     optimizer.zero_grad()
-                    output = model(X)
-                    loss = -mll(output, y_normalised)
+                    output = self.model(self.X)
+                    loss = -mll(output, self.Y)
                     loss.backward()
                     optimizer.step()
 
-                self.prior = gpx.gps.Prior(mean_function=self.mu0, kernel=self.kernel)
-
-                # Likelihood
-                likelihood = gpx.likelihoods.Gaussian(num_datapoints=self.N)
-
-                # posterior
-                self.posterior = self.prior * likelihood
-
-                # Define the training objective
-                self.negative_mll = gpx.objectives.ConjugateMLL(negative=True)
-
-                print('Before training: ', self.posterior.prior.kernel)
-
-                self.opt_posterior, _ = gpx.fit_scipy(
-                                model=self.posterior,
-                                objective=self.negative_mll,
-                                train_data=self.data
-                            )
-                
-                print('After training: ', self.opt_posterior.prior.kernel)
-
-                # estimated hyperparameters
-                print('am: ', self.opt_posterior.prior.kernel.kernels[0].variance)
-                print('ls: ', self.opt_posterior.prior.kernel.kernels[0].lengthscale)
-                print('vr: ', self.opt_posterior.prior.kernel.kernels[1].variance)
-
-                # If n_inducing points is close to N, the model will not return
-                # accurate solutions.
-                # z = np.linspace(self.X.min(), self.X.max(), n_inducing).reshape(-1, 1)
+                # Print the estimated hyperparameters
+                print("Lengthscale:", self.model.covar_module.base_kernel.lengthscale.item())
+                print("Outputscale:", self.model.covar_module.outputscale.item())
+                print("Noise:", self.likelihood.noise.item())
 
                 # Predictions
-                latent_dist = self.opt_posterior(X, train_data=self.data)
-                predictive_dist = self.opt_posterior.likelihood(latent_dist)
-
-                # ! Always vstack the predictions and not the errors
-                # (critical error otherwise)
-                mu = np.vstack(predictive_dist.mean())
+                self.model.eval()
+                self.likelihood.eval()
+                with torch.no_grad(), gpytorch.settings.fast_pred_var():
+                    observed_pred = likelihood(self.model(self.X))
+                    mu = observed_pred.mean
                 
                 # Initialise the residuals and initial GP hyperparameters
                 self.init_errors = mu - self.Y
@@ -136,12 +117,16 @@ class DirichletProcessSparseGaussianProcess(ExactGP):
                     plt.rc('xtick', labelsize=14)
                     plt.rc('ytick', labelsize=14)
                     plt.plot(self.Y, 'o', color='black')
-                    plt.plot(predictive_dist.mean(), color='lightgreen', linewidth = 2)
+                    plt.plot(mu.numpy(), color='lightgreen', linewidth = 2)
                     ax.set_xlabel(" Date-time", fontsize=14)
                     ax.set_ylabel(" Fault density", fontsize=14)
                     plt.legend(loc=0, prop={"size":18}, facecolor="white",
-                               framealpha=1.0)
-                
+                                framealpha=1.0)
+                    
+    def forward(self, x):
+        mean_x = self.mu0(x)
+        covar_x = self.kernel(x)
+        return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
                 
     def plot_convergence(self, lnP, title):
         plt.figure()
