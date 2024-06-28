@@ -37,7 +37,6 @@ class DirichletProcessSparseGaussianProcess():
                 
                 # Initialisation of the variables related to the training data
                 self.X_org = np.vstack(X)       # Required for DP clustering
-                self.Y_org = np.vstack(Y)       # Required for DP clustering
                 self.X = torch.tensor(X, dtype=torch.float32)
                 self.Y = Y                      # Targets never vstacked
                 self.N = len(Y)                 # No. training points
@@ -56,6 +55,9 @@ class DirichletProcessSparseGaussianProcess():
                     self.Y_mu = np.mean(self.Y)
                     self.Y_std = np.std(self.Y)
                     self.Y = (self.Y - self.Y_mu) / self.Y_std
+
+                # Required for DP clustering
+                self.Y_org = np.vstack(self.Y)
 
                 # convert y to tensor for torch
                 self.Y = torch.tensor(self.Y, dtype=torch.float32)
@@ -112,7 +114,7 @@ class DirichletProcessSparseGaussianProcess():
                     mu = observed_pred.mean
                 
                 # Initialise the residuals and initial GP hyperparameters
-                self.init_errors = mu.numpy() - self.Y_org
+                self.init_errors = np.vstack(mu.numpy()) - self.Y_org
                 
                 # Plot solution
                 self.x_axis = np.linspace(0, len(Y), len(Y))
@@ -135,7 +137,7 @@ class DirichletProcessSparseGaussianProcess():
         plt.plot(ll, color='blue')
         plt.title(title, fontsize=17)
         plt.xlabel('Iterations', fontsize=17)
-        plt.ylabel('log-likelihood', fontsize=17)
+        plt.ylabel('- Marg-log-likelihood', fontsize=17)
         self.convergence = ll
         
     def plot_solution(self, K, indices, mu, iter):
@@ -246,18 +248,24 @@ class DirichletProcessSparseGaussianProcess():
         return indices, X0, Y0, resp[0], pies, stds, K_opt
     
     def predict(self, X_test):
-        latent_dist = self.opt_posterior(X_test, self.data)
-        predictive_dist = self.opt_posterior.likelihood(latent_dist)
-        
-        muf = predictive_dist.mean()
-        stdf = predictive_dist.stddev()
+        X_test = torch.tensor(X_test, dtype=torch.float32)
+
+        self.gp.eval()
+        self.likelihood.eval()
+        with torch.no_grad(), gpytorch.settings.fast_pred_var():
+            observed_pred = self.likelihood(self.gp(X_test))
+            # Dont vstack
+            pred_mean = observed_pred.mean
+            lower_norm, upper_norm  = observed_pred.confidence_region()
+            mu = pred_mean.numpy()
 
         # Return the un-standardised calculations if required
         if self.normalise_y is True:
-            mu = self.Y_std * muf + self.Y_mu
-            std = self.Y_std * stdf
+            mu = self.Y_std * mu + self.Y_mu
+            lower = self.Y_std * lower_norm.numpy() + self.Y_mu
+            upper = self.Y_std * upper_norm.numpy() + self.Y_mu
 
-        return mu, std
+        return mu, lower, upper
 
     def train(self, tol=12):
         """
@@ -317,9 +325,9 @@ class DirichletProcessSparseGaussianProcess():
             X0 = torch.tensor(X0[:,0], dtype=torch.float32)
             Y0 = torch.tensor(Y0[:,0], dtype=torch.float32)
 
-            gp = self.gp_model(X0, Y0, self.likelihood)
-            gp.mean_module  = self.model.mean_module
-            gp.covar_module = self.model.covar_module
+            self.gp = self.gp_model(X0, Y0, self.likelihood)
+            self.gp.mean_module  = self.model.mean_module
+            self.gp.covar_module = self.model.covar_module
 
             def forward(self, x):
                 mean_x = self.mean_module(x)
@@ -327,23 +335,23 @@ class DirichletProcessSparseGaussianProcess():
                 return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
 
             # Dynamically add the forward method to the model
-            gp.forward = types.MethodType(forward, gp)
+            self.gp.forward = types.MethodType(forward, self.gp)
 
             # Initialize hyperparameters
             ls = self.model.covar_module.base_kernel.lengthscale.item()
-            gp.covar_module.base_kernel.lengthscale = ls
+            self.gp.covar_module.base_kernel.lengthscale = ls
             self.likelihood.noise = self.likelihood.noise.item()
 
             # Train model
-            gp.train()
+            self.gp.train()
             self.likelihood.train()
 
-            optimizer = torch.optim.Adam(gp.parameters(), lr=0.1)
-            mll = ExactMarginalLogLikelihood(self.likelihood, gp)
+            optimizer = torch.optim.Adam(self.gp.parameters(), lr=0.1)
+            mll = ExactMarginalLogLikelihood(self.likelihood, self.gp)
 
             for conteo in range(100):
                 optimizer.zero_grad()
-                output = gp(X0)
+                output = self.gp(X0)
                 loss = -mll(output, Y0)
                 loss.backward()
                 optimizer.step()
@@ -351,10 +359,10 @@ class DirichletProcessSparseGaussianProcess():
             self.mll_eval = loss
 
             # Predictions
-            gp.eval()
+            self.gp.eval()
             self.likelihood.eval()
             with torch.no_grad(), gpytorch.settings.fast_pred_var():
-                observed_pred = self.likelihood(gp(self.X))
+                observed_pred = self.likelihood(self.gp(self.X))
 
                 # ! Always vstack mu and not the errors (issues otherwise)
                 pred_mean = observed_pred.mean
@@ -390,7 +398,7 @@ class DirichletProcessSparseGaussianProcess():
             self.plot_convergence(lnP, 'DPSGP: Regression step convergence')
             
         # Capture and save the estimated parameters
-        index, X0, Y0, resp0, pies, stds, K = self.DP(self.X, self.Y,
+        index, X0, Y0, resp0, pies, stds, K = self.DP(self.X_org, self.Y_org,
                                                       errors, K)
         self.indices = index
         self.resp = resp0
