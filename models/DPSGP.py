@@ -4,10 +4,11 @@ import matplotlib.pyplot as plt
 from scipy.stats import multivariate_normal as mvn
 import torch
 import gpytorch
-from gpytorch.models import ExactGP
+from gpytorch.models import ExactGP, ApproximateGP
+from gpytorch.variational import VariationalStrategy, CholeskyVariationalDistribution
 from gpytorch.kernels import RBFKernel as RBF, ScaleKernel
 from gpytorch.likelihoods import GaussianLikelihood
-from gpytorch.mlls import ExactMarginalLogLikelihood
+from gpytorch.mlls import ExactMarginalLogLikelihood, VariationalELBO
 import types
 
 """
@@ -41,6 +42,7 @@ class DirichletProcessSparseGaussianProcess():
                 self.Y = Y                      # Targets never vstacked
                 self.N = len(Y)                 # No. training points
                 self.D = self.X.dim()           # No. Dimensions
+                self.n_inducing = n_inducing
                 self.normalise_y = normalise_y  # Normalise data
                 self.N_iter = N_iter            # Max number of iterations (DPGP)
                 self.DP_max_iter = DP_max_iter  # Max number of iterations (DP)
@@ -65,8 +67,15 @@ class DirichletProcessSparseGaussianProcess():
                 self.likelihood = likelihood
 
                 # Initialise GP model
-                self.gp_model = gp_model
-                self.model = gp_model(self.X, self.Y, self.likelihood)
+                if gp_model.isinstance(ApproximateGP):
+                    inducing_points = self.X[::n_inducing]
+                    variational_distribution = CholeskyVariationalDistribution(inducing_points.size(0))
+                    model = VariationalStrategy(ApproximateGP, inducing_points=inducing_points,
+                                                            variational_distribution=variational_distribution,
+                                                            learn_inducing_locations=True)
+                else:
+                    self.gp_model = gp_model
+                    self.model = gp_model(self.X, self.Y, self.likelihood)
 
                 # Assign mean and covariance modules
                 self.model.mean_module = mu0
@@ -89,7 +98,11 @@ class DirichletProcessSparseGaussianProcess():
                 self.likelihood.train()
 
                 optimizer = torch.optim.Adam(self.model.parameters(), lr=0.1)
-                mll = ExactMarginalLogLikelihood(self.likelihood, self.model)
+
+                if gp_model.isinstance(ApproximateGP):
+                    mll = VariationalELBO(self.likelihood, model, self.Y.numel())
+                else:
+                    mll = ExactMarginalLogLikelihood(self.likelihood, self.model)
 
                 for i in range(100):
                     optimizer.zero_grad()
