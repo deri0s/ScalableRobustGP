@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from scipy.stats import multivariate_normal as mvn
 import torch
 import gpytorch
-from gpytorch.models import ExactGP, ApproximateGP
+from gpytorch.models import GP, ExactGP, ApproximateGP
 from gpytorch.variational import VariationalStrategy, CholeskyVariationalDistribution
 from gpytorch.kernels import RBFKernel as RBF, ScaleKernel
 from gpytorch.likelihoods import GaussianLikelihood
@@ -48,6 +48,7 @@ class DirichletProcessSparseGaussianProcess():
                 self.DP_max_iter = DP_max_iter  # Max number of iterations (DP)
                 self.plot_conv = plot_conv
                 self.plot_sol = plot_sol
+                self.gp_model = gp_model
                 
                 # The upper bound of the number of Gaussian noise sources
                 self.init_K = init_K
@@ -66,20 +67,17 @@ class DirichletProcessSparseGaussianProcess():
 
                 self.likelihood = likelihood
 
-                # Initialise GP model
-                if gp_model.isinstance(ApproximateGP):
-                    inducing_points = self.X[::n_inducing]
-                    variational_distribution = CholeskyVariationalDistribution(inducing_points.size(0))
-                    model = VariationalStrategy(ApproximateGP, inducing_points=inducing_points,
-                                                            variational_distribution=variational_distribution,
-                                                            learn_inducing_locations=True)
-                else:
-                    self.gp_model = gp_model
-                    self.model = gp_model(self.X, self.Y, self.likelihood)
+                # Get GPytorch model
+                # self.model = self.set_gp_model(gp_model, self.X, self.Y, self.n_inducing)
 
-                # Assign mean and covariance modules
+                self.model = ExactGP(self.X, self.Y, self.likelihood)
+
+                # # Assign mean and covariance modules
                 self.model.mean_module = mu0
                 self.model.covar_module = kernel
+                # required to access at any class method
+                self.mu0 = mu0
+                self.kernel = kernel
 
                 # Define the forward method
                 def forward(self, x):
@@ -97,16 +95,18 @@ class DirichletProcessSparseGaussianProcess():
                 self.model.train()
                 self.likelihood.train()
 
-                optimizer = torch.optim.Adam(self.model.parameters(), lr=0.1)
+                optimizer = torch.optim.Adam(self.model.parameters(), lr=0.01)
 
-                if gp_model.isinstance(ApproximateGP):
-                    mll = VariationalELBO(self.likelihood, model, self.Y.numel())
-                else:
-                    mll = ExactMarginalLogLikelihood(self.likelihood, self.model)
+                # Define the Marginalised-Log-Likelihood
+                # if gp_model == ApproximateGP:
+                #     mll = VariationalELBO(self.likelihood, self.model, self.Y.numel())
+                # else:
+                #     mll = ExactMarginalLogLikelihood(self.likelihood, self.model)
+
+                mll = ExactMarginalLogLikelihood(self.likelihood, self.model)
 
                 for i in range(100):
                     optimizer.zero_grad()
-                    if i == 1: print('en init: ', self.model(self.X))
                     output = self.model(self.X)
                     loss = -mll(output, self.Y)
                     loss.backward()
@@ -115,6 +115,7 @@ class DirichletProcessSparseGaussianProcess():
                 self.mll_eval = loss.detach().numpy()
 
                 # Print the estimated hyperparameters
+                print('\nFirst hyperparameters')
                 print("Lengthscale:", self.model.covar_module.base_kernel.lengthscale.item())
                 print("Outputscale:", self.model.covar_module.outputscale.item())
                 print("Noise:", self.likelihood.noise.item())
@@ -143,6 +144,35 @@ class DirichletProcessSparseGaussianProcess():
                     ax.set_ylabel(" Fault density", fontsize=14)
                     plt.legend(loc=0, prop={"size":18}, facecolor="white",
                                 framealpha=1.0)
+                    
+    def set_gp_model(self, gp_model, X, Y, inducing_inputs):
+         """
+         Return an instance of the GPytorch model chosen
+         """
+         if gp_model == ApproximateGP:
+            inducing_points = X[::inducing_inputs]
+            variational_distribution = CholeskyVariationalDistribution(inducing_points.size(0))
+
+            # Create a dummy model to initialize the variational strategy
+            self.model = ApproximateGP(VariationalStrategy(
+                                        ApproximateGP(torch.Size([inducing_points.size(0)])),
+                                        inducing_points=inducing_points,
+                                        variational_distribution=variational_distribution,
+                                        learn_inducing_locations=True)
+                        )
+            # Replace the variational strategy with the correct one
+            variational_strategy = VariationalStrategy(
+                                        self.model,
+                                        inducing_points=inducing_points,
+                                        variational_distribution=variational_distribution,
+                                        learn_inducing_locations=True
+                                    )
+            self.model.variational_strategy = variational_strategy
+            return self.model
+         else:
+            self.model = gp_model(X, Y, self.likelihood)
+            return self.model    
+
                                     
     def plot_convergence(self, lnP, title):
         plt.figure()
@@ -153,7 +183,7 @@ class DirichletProcessSparseGaussianProcess():
         plt.ylabel('- Marg-log-likelihood', fontsize=17)
         self.convergence = ll
         
-    def plot_solution(self, K, indices, mu, iter):
+    def plot_solution(self, K, indices, mu, iter, z):
         color_iter = ['lightgreen', 'orange','red', 'brown','black']
 
         enumerate_K = [i for i in range(K)]
@@ -172,6 +202,15 @@ class DirichletProcessSparseGaussianProcess():
                         'o',color=c, markersize = 8,
                         label='Noise Level '+str(k))
         ax.plot(self.x_axis, mu, color="green", linewidth = 2, label=" DPGP")
+        ax.vlines(
+            x=z,
+            ymin=self.Y.min(),
+            ymax=self.Y.max(),
+            alpha=0.3,
+            linewidth=1.5,
+            label="Inducing point",
+            color='orange'
+        )
         ax.set_xlabel(" Date-time", fontsize=14)
         ax.set_ylabel(" Fault density", fontsize=14)
         plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
@@ -338,9 +377,9 @@ class DirichletProcessSparseGaussianProcess():
             X0 = torch.tensor(X0[:,0], dtype=torch.float32)
             Y0 = torch.tensor(Y0[:,0], dtype=torch.float32)
 
-            self.gp = self.gp_model(X0, Y0, self.likelihood)
-            self.gp.mean_module  = self.model.mean_module
-            self.gp.covar_module = self.model.covar_module
+            self.gp = self.set_gp_model(self.gp_model, X0, Y0, 10)
+            self.gp.mean_module  = self.mu0
+            self.gp.covar_module = self.kernel
 
             def forward(self, x):
                 mean_x = self.mean_module(x)
@@ -394,7 +433,8 @@ class DirichletProcessSparseGaussianProcess():
             print("Noise:", self.likelihood.noise.item())
             
             if self.plot_sol:
-                self.plot_solution(K, index, mu, i)
+                estimated_z = self.gp.variational_strategy.inducing_points.detach().numpy()
+                self.plot_solution(K, index, mu, i, estimated_z)
                 
             if abs(lnP[i+1] - lnP[i]) < tolerance:
                 print('\n Model trained')
