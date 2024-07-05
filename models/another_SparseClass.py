@@ -88,15 +88,6 @@ class DirichletProcessSparseGaussianProcess():
                     #  self.model = ExactGP(self.X, self.Y, self.likelihood)
                 else:
                      self.model = ExactGP(self.X, self.Y, self.likelihood)
-                     # Define the forward method
-                     def forward(self, x):
-                        mean_x = self.mean_module(x)
-                        covar_x = self.covar_module(x)
-                        return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
-
-                     # Dynamically add the forward method to the model
-                     self.model.forward = types.MethodType(forward, self.model)
-
 
                 # # Assign mean and covariance modules
                 # self.model.mean_module = mu0
@@ -378,20 +369,11 @@ class DirichletProcessSparseGaussianProcess():
             # Get GPytorch model
             if self.gp_model == ApproximateGP:
                 ind_points = self.X[::self.n_inducing]
-                # ind_points[0] = self.X[0]
-                # ind_points[-1]= self.X[self.N-1]
-                self.gp = SparseGP(ind_points)
+                ind_points[0] = self.X[0]
+                ind_points[-1]= self.X[self.N-1]
+                self.gp = SparseGP(self.X[::self.n_inducing])
             else:
                 self.gp = ExactGP(self.X, self.Y, self.likelihood)
-                # Define the forward method
-                def forward(self, x):
-                    mean_x = self.mean_module(x)
-                    covar_x = self.covar_module(x)
-                    return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
-
-                # Dynamically add the forward method to the model
-                self.model.forward = types.MethodType(forward, self.gp)
-
 
             # Initialize hyperparameters
             # ls = self.model.covar_module.base_kernel.lengthscale.item()

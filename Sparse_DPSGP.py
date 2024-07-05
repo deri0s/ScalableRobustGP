@@ -7,10 +7,6 @@ import matplotlib.pyplot as plt
 file_name = paths.get_synthetic_path('Synthetic.xlsx')
 df = pd.read_excel(file_name, sheet_name='Training')
 
-# Read data
-x_test_df = pd.read_excel(file_name, sheet_name='Testing')
-labels_df = pd.read_excel(file_name, sheet_name='Real labels')
-
 # Get training data
 X = df['X'].values
 Y = df['Y'].values
@@ -25,9 +21,10 @@ from gpytorch.kernels import ScaleKernel, RBFKernel as RBF
 prior_cov = ScaleKernel(RBF(lengthscale=0.9))
 
 gp = DPSGP(X, Y, init_K=8,
-           gp_model=ApproximateGP, kernel=prior_cov,
-           n_inducing=14, normalise_y=True,
+           gp_model=ExactGP, kernel=prior_cov,
+           n_inducing=2, normalise_y=True,
            plot_conv=True, plot_sol=True)
+# plt.show()
 gp.train()
 mut, lower, upper = gp.predict(X)
 
