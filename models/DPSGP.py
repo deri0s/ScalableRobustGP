@@ -57,6 +57,8 @@ class DirichletProcessSparseGaussianProcess():
                 self.D = self.X.dim()           # No. Dimensions
                 self.n_inducing = n_inducing
                 self.normalise_y = normalise_y  # Normalise data
+                self.mu0 = mu0
+                self.kernel = kernel
                 self.N_iter = N_iter            # Max number of iterations (DPGP)
                 self.DP_max_iter = DP_max_iter  # Max number of iterations (DP)
                 self.plot_conv = plot_conv
@@ -84,18 +86,37 @@ class DirichletProcessSparseGaussianProcess():
 
                 # Get GPytorch model
                 if gp_model == ApproximateGP:
-                     self.model = SparseGP(self.X[::self.n_inducing])
-                    #  self.model = ExactGP(self.X, self.Y, self.likelihood)
+                    self.model = SparseGP(self.X[::self.n_inducing])
+
+                    # self.model = ExactGP(self.X, self.Y, self.likelihood)
+
+                    # # Assign mean and covariance modules
+                    # self.model.mean_module = mu0
+                    # self.model.covar_module = kernel
+                     
+                    # # Define the forward method
+                    # def forward(self, x):
+                    #     mean_x = self.mean_module(x)
+                    #     covar_x = self.covar_module(x)
+                    #     return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
+
+                    # # Dynamically add the forward method to the model
+                    # self.model.forward = types.MethodType(forward, self.model)
                 else:
-                     self.model = ExactGP(self.X, self.Y, self.likelihood)
-                     # Define the forward method
-                     def forward(self, x):
+                    self.model = ExactGP(self.X, self.Y, self.likelihood)
+
+                    # Assign mean and covariance modules
+                    self.model.mean_module = mu0
+                    self.model.covar_module = kernel
+                     
+                    # Define the forward method
+                    def forward(self, x):
                         mean_x = self.mean_module(x)
                         covar_x = self.covar_module(x)
                         return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
 
-                     # Dynamically add the forward method to the model
-                     self.model.forward = types.MethodType(forward, self.model)
+                    # Dynamically add the forward method to the model
+                    self.model.forward = types.MethodType(forward, self.model)
 
 
                 # # Assign mean and covariance modules
@@ -147,7 +168,6 @@ class DirichletProcessSparseGaussianProcess():
                 self.x_axis = np.linspace(0, len(Y), len(Y))
                 
                 if gp_model == ApproximateGP:
-                    # estimated inducing points
                     estimated_z = self.model.variational_strategy.inducing_points.detach().numpy()
 
                 if self.plot_sol:
@@ -181,7 +201,7 @@ class DirichletProcessSparseGaussianProcess():
         plt.ylabel('- Marg-log-likelihood', fontsize=17)
         self.convergence = ll
         
-    def plot_solution(self, K, indices, mu, iter, z):
+    def plot_solution(self, K, indices, mu, iter):
         color_iter = ['lightgreen', 'orange','red', 'brown','black']
 
         enumerate_K = [i for i in range(K)]
@@ -200,15 +220,15 @@ class DirichletProcessSparseGaussianProcess():
                         'o',color=c, markersize = 8,
                         label='Noise Level '+str(k))
         ax.plot(self.x_axis, mu, color="green", linewidth = 2, label=" DPGP")
-        ax.vlines(
-            x=z,
-            ymin=self.Y.min(),
-            ymax=self.Y.max(),
-            alpha=0.3,
-            linewidth=1.5,
-            label="Inducing point",
-            color='orange'
-        )
+        # ax.vlines(
+        #     x=z,
+        #     ymin=self.Y.min(),
+        #     ymax=self.Y.max(),
+        #     alpha=0.3,
+        #     linewidth=1.5,
+        #     label="Inducing point",
+        #     color='orange'
+        # )
         ax.set_xlabel(" Date-time", fontsize=14)
         ax.set_ylabel(" Fault density", fontsize=14)
         plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
@@ -372,17 +392,25 @@ class DirichletProcessSparseGaussianProcess():
             REGRESSION
             """
             # Assemble training data
-            X0 = torch.tensor(X0, dtype=torch.float32)
-            Y0 = torch.tensor(Y0[:,0], dtype=torch.float32)
+            X0 = torch.tensor(X0[0:self.N:2, :], dtype=torch.float32)
+            Y0 = torch.tensor(Y0[0:self.N:2, 0], dtype=torch.float32)
+
+            # X0 = torch.tensor(X0, dtype=torch.float32)
+            # Y0 = torch.tensor(Y0[:,0], dtype=torch.float32)
 
             # Get GPytorch model
             if self.gp_model == ApproximateGP:
                 ind_points = self.X[::self.n_inducing]
-                # ind_points[0] = self.X[0]
-                # ind_points[-1]= self.X[self.N-1]
+                ind_points[0] = self.X[0]
+                ind_points[-1]= self.X[self.N-1]
                 self.gp = SparseGP(ind_points)
             else:
-                self.gp = ExactGP(self.X, self.Y, self.likelihood)
+                self.gp = ExactGP(X0, Y0, self.likelihood)
+
+                # Assign mean and covariance modules
+                self.gp.mean_module = self.mu0
+                self.gp.covar_module = self.kernel
+
                 # Define the forward method
                 def forward(self, x):
                     mean_x = self.mean_module(x)
@@ -390,7 +418,7 @@ class DirichletProcessSparseGaussianProcess():
                     return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
 
                 # Dynamically add the forward method to the model
-                self.model.forward = types.MethodType(forward, self.gp)
+                self.gp.forward = types.MethodType(forward, self.gp)
 
 
             # Initialize hyperparameters
@@ -408,7 +436,7 @@ class DirichletProcessSparseGaussianProcess():
             if self.gp_model == ApproximateGP:
                 mll = VariationalELBO(self.likelihood, self.gp, Y0.numel())
             else:
-                mll = ExactMarginalLogLikelihood(self.likelihood, self.model)
+                mll = ExactMarginalLogLikelihood(self.likelihood, self.gp)
 
             for conteo in range(100):
                 optimizer.zero_grad()
@@ -442,8 +470,12 @@ class DirichletProcessSparseGaussianProcess():
             print("Noise:", self.likelihood.noise.item())
             
             if self.plot_sol:
-                estimated_z = self.gp.variational_strategy.inducing_points.detach().numpy()
-                self.plot_solution(K, index, mu, i, estimated_z)
+                if self.gp_model == ApproximateGP:
+                    estimated_z = self.gp.variational_strategy.inducing_points.detach().numpy()
+                    self.plot_solution(K, index, mu, i)
+                else:
+                    self.plot_solution(K, index, mu, i)
+
                 
             if abs(lnP[i+1] - lnP[i]) < tolerance:
                 print('\n Model trained')

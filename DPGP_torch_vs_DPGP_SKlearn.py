@@ -32,7 +32,7 @@ kernel = se + wn
 # DPGP
 rgp = DPGP(X, y, init_K=7, kernel=kernel, normalise_y=True, 
            plot_sol=False, plot_conv=True)
-rgp.train(pseudo_sparse=True)
+rgp.train(pseudo_sparse=False)
 muMix, stdMix = rgp.predict(X_test)
 
 print('\nkernel: \n', rgp.kernel_)
@@ -43,7 +43,7 @@ GPyTorch
 """
 from models.DPSGP import DirichletProcessSparseGaussianProcess as DPSGP
 # Covariance function
-from gpytorch.models import ExactGP
+from gpytorch.models import ExactGP, ApproximateGP
 from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.kernels import ScaleKernel, RBFKernel as RBF
 
@@ -51,8 +51,8 @@ from gpytorch.kernels import ScaleKernel, RBFKernel as RBF
 prior_cov = ScaleKernel(RBF(lengthscale=0.9))
 
 gp = DPSGP(X, y, init_K=8,
-           gp_model=ExactGP, kernel=prior_cov,
-           n_inducing=30, normalise_y=True,
+           gp_model=ApproximateGP, kernel=prior_cov,
+           n_inducing=2, normalise_y=True,
            plot_conv=True, plot_sol=True)
 gp.train()
 mut, lower, upper = gp.predict(X_test)
