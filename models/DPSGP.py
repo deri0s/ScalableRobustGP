@@ -13,12 +13,12 @@ import types
 
 """
 A Robust Sparse Gaussian Process regression aprroach based on Dirichlet Process
-clustering and Gaussian Process Variational Sparse regression for scenarios where
+clustering and Sparse Gaussian Process regression for scenarios where
 the measurement noise is assumed to be generated from a mixture of Gaussian
 distributions. The proposed class inherits attributes and methods from the
 GPJAX classes.
 
-Diego Echeverria Rios & P.L.Green
+Diego Echeverria Rios (Derios) & P.L.Green
 """
 class SparseGP(ApproximateGP):
     def __init__(self, inducing_points):

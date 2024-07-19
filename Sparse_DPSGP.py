@@ -13,7 +13,7 @@ Y = df['Y'].values
 N = len(Y)
 
 # Covariance function
-from gpytorch.models import ExactGP, ApproximateGP
+from gpytorch.models import ExactGP
 from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.kernels import ScaleKernel, RBFKernel as RBF
 
