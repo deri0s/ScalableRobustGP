@@ -9,7 +9,7 @@ from gpytorch.kernels import RBFKernel as RBF
 from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.distributions import MultivariateNormal
 from gpytorch.mlls import ExactMarginalLogLikelihood
-import types
+from scipy.spatial import cKDTree
 
 """
 A Robust Sparse Gaussian Process regression aprroach based on Dirichlet Process
@@ -47,7 +47,7 @@ class DirichletProcessSparseGaussianProcess():
                     Initialising variables and parameters
                 """
                 
-                # Initialisation of the variables related to the training data
+                # Standardised features (not working if these are not standardised)
                 self.X_org = np.vstack(X)       # Required for DP clustering
                 self.X = torch.tensor(X, dtype=torch.float32)
                 self.Y = Y                      # Targets never vstacked
@@ -88,7 +88,7 @@ class DirichletProcessSparseGaussianProcess():
                 self.likelihood.train()
 
                 optimizer = torch.optim.Adam(self.model.parameters(), lr=0.01)
-                mll = gpytorch.mlls.ExactMarginalLogLikelihood(self.likelihood, self.model)
+                mll = ExactMarginalLogLikelihood(self.likelihood, self.model)
 
                 training_iterations = 100
                 for count in range(training_iterations):
@@ -104,8 +104,8 @@ class DirichletProcessSparseGaussianProcess():
                 print("Outputscale:", self.model.covar_module.base_kernel.outputscale.item())
                 print("Noise:", self.likelihood.noise.item(), '\n')
 
-                # get estimated inducing points
-                _z = self.model.covar_module.inducing_points.detach().numpy()
+                if self.gp_model == 'Sparse':
+                    _z = self.model.covar_module.inducing_points.detach().numpy()
 
                 # model evaluation
                 self.mll_eval = loss.detach().numpy()
@@ -122,9 +122,6 @@ class DirichletProcessSparseGaussianProcess():
                 
                 # Plot solution
                 self.x_axis = np.linspace(0, len(Y), len(Y))
-                
-                if gp_model == 'Sparse':
-                    _z = self.model.covar_module.inducing_points.detach().numpy()
 
                 if self.plot_sol:
                     fig, ax = plt.subplots()
@@ -141,18 +138,19 @@ class DirichletProcessSparseGaussianProcess():
                         ls='--',
                         label="z0",
                         color='grey'
-                    )
-                    ax.vlines(
-                        x=_z,
-                        ymin=self.Y.min().item(),
-                        ymax=self.Y.max().item(),
-                        alpha=0.3,
-                        linewidth=1.5,
-                        label="z*",
-                        color='orange'
-                    )
+                        )
+                        ax.vlines(
+                            x=_z,
+                            ymin=self.Y.min().item(),
+                            ymax=self.Y.max().item(),
+                            alpha=0.3,
+                            linewidth=1.5,
+                            label="z*",
+                            color='orange'
+                        )
                     plt.plot(self.X, self.Y, 'o', color='black')
                     plt.plot(self.X, mu.numpy(), color='lightgreen', linewidth = 2)
+                    plt.title('First GP approximation')
                     ax.set_xlabel(" Date-time", fontsize=14)
                     ax.set_ylabel(" Fault density", fontsize=14)
                     plt.legend(loc=0, prop={"size":18}, facecolor="white",
@@ -189,6 +187,19 @@ class DirichletProcessSparseGaussianProcess():
         ax.set_xlabel(" Date-time", fontsize=14)
         ax.set_ylabel(" Fault density", fontsize=14)
         plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
+
+
+    def get_z_indices(self, x, inducing_inputs):
+        closest_values = np.zeros_like(inducing_inputs)
+        indices = np.zeros_like(x, dtype=int)
+
+        for i, val1 in enumerate(inducing_inputs):
+            closest_idx = np.argmin(np.abs(x - val1))
+            closest_values[i] = x[closest_idx]
+            indices[i] = closest_idx
+
+        unique_indices = np.unique(closest_values, return_index=True)[1]
+        return indices[unique_indices][:,0]
         
         
     def gmm_loglikelihood(self, y, f, sigmas, pies, K):
@@ -203,261 +214,233 @@ class DirichletProcessSparseGaussianProcess():
             temp_sum += pies[k] * mvn.pdf(y, f, sigmas[k]**2)
         loglikelihood = temp_sum
         return loglikelihood
-        
-    # def DP(self, X, Y, errors, T):
-    #     """
-    #         Dirichlet Process mixture model for clustering.
-            
-    #         Inputs
-    #         ------
-    #         - T: The upper limit of the number of noise sources (clusters)
-            
-    #         Returns
-    #         -------
-    #         - Indices: The indices of the clustered observations.
-            
-    #         - X0, Y0: Pair of inputs and outputs associated with the
-    #                     Gaussian of narrowest width.
-                        
-    #         - resp[0]: The responsibility vector of the Gaussian with the
-    #                     narrowest width
-                        
-    #         - pies: The mixture proportionalities.
-            
-    #         - K_opt: The number of components identified in the mixture.
-    #     """
 
-    #     gmm =m.BayesianGaussianMixture(n_components=T,
-    #                                    covariance_type='spherical',
-    #                                    max_iter=self.DP_max_iter,            # original 70
-    #                                    weight_concentration_prior_type='dirichlet_process',
-    #                                    init_params="random",
-    #                                    random_state=42)
+    def DP(self, X, Y, errors, T):
+        """
+            Dirichlet Process mixture model for clustering.
+            
+            Inputs
+            ------
+            - T: The upper limit of the number of noise sources (clusters)
+            
+            Returns
+            -------
+            - Indices: The indices of the clustered observations.
+            
+            - X0, Y0: Pair of inputs and outputs associated with the
+                        Gaussian of narrowest width.
+                        
+            - resp[0]: The responsibility vector of the Gaussian with the
+                        narrowest width
+                        
+            - pies: The mixture proportionalities.
+            
+            - K_opt: The number of components identified in the mixture.
+        """
+
+        gmm =m.BayesianGaussianMixture(n_components=T,
+                                       covariance_type='spherical',
+                                       max_iter=self.DP_max_iter,            # original 70
+                                       weight_concentration_prior_type='dirichlet_process',
+                                       init_params="random",
+                                       random_state=42)
                 
-    #     # The data labels correspond to the position of the mix parameters
-    #     labels = gmm.fit_predict(errors)
+        # The data labels correspond to the position of the mix parameters
+        labels = gmm.fit_predict(errors)
         
-    #     # Capture the pies: It is a tuple with not ordered elements
-    #     pies_no = np.sort(gmm.weights_)
+        # Capture the pies: It is a tuple with not ordered elements
+        pies_no = np.sort(gmm.weights_)
         
-    #     # Capture the sigmas
-    #     covs = np.reshape(gmm.covariances_, (1, gmm.n_components))
-    #     covariances = covs[0]
-    #     stds_no = np.sqrt(covariances)
+        # Capture the sigmas
+        covs = np.reshape(gmm.covariances_, (1, gmm.n_components))
+        covariances = covs[0]
+        stds_no = np.sqrt(covariances)
         
-    #     # Get the width of each Gaussian 
-    #     not_ordered = np.array(np.sqrt(gmm.covariances_))
+        # Get the width of each Gaussian 
+        not_ordered = np.array(np.sqrt(gmm.covariances_))
         
-    #     # Initialise the ordered pies, sigmas and responsibilities
-    #     pies = np.zeros(gmm.n_components)
-    #     stds = np.zeros(gmm.n_components)
-    #     resp_no = gmm.predict_proba(errors)
-    #     resp = []
+        # Initialise the ordered pies, sigmas and responsibilities
+        pies = np.zeros(gmm.n_components)
+        stds = np.zeros(gmm.n_components)
+        resp_no = gmm.predict_proba(errors)
+        resp = []
         
-    #     # Order the Gaussian components by their width
-    #     order = np.argsort(not_ordered)
+        # Order the Gaussian components by their width
+        order = np.argsort(not_ordered)
         
-    #     indx = []    
-    #     # The 0 position or first element of the 'order' vector corresponds
-    #     # to the Gaussian with the min(std0, std1, std2, ..., stdk)
-    #     for new_order in range(gmm.n_components):
-    #         pies[new_order] = pies_no[order[new_order]]
-    #         stds[new_order] = stds_no[order[new_order]]
-    #         resp.append(resp_no[:, order[new_order]])
-    #         indx.append([i for (i, val) in enumerate(labels) if val == order[new_order]])
+        indx = []    
+        # The 0 position or first element of the 'order' vector corresponds
+        # to the Gaussian with the min(std0, std1, std2, ..., stdk)
+        for new_order in range(gmm.n_components):
+            pies[new_order] = pies_no[order[new_order]]
+            stds[new_order] = stds_no[order[new_order]]
+            resp.append(resp_no[:, order[new_order]])
+            indx.append([i for (i, val) in enumerate(labels) if val == order[new_order]])
         
-    #     # The ensemble task has to account for empty subsets.                
-    #     indices = [x for x in indx if x != []]
-    #     K_opt = len(indices)         # The optimum number of components
-    #     X0 = X[indices[0]]
-    #     Y0 = Y[indices[0]]
+        # The ensemble task has to account for empty subsets.                
+        indices = [x for x in indx if x != []]
+        K_opt = len(indices)         # The optimum number of components
+        X0 = X[indices[0]]
+        Y0 = Y[indices[0]]
     
-    #     return indices, X0, Y0, resp[0], pies, stds, K_opt
+        return indices, X0, Y0, resp[0], pies, stds, K_opt
     
-    # def predict(self, X_test):
-    #     X_test = torch.tensor(X_test, dtype=torch.float32)
+    def predict(self, X_test):
+        """
+        X_test:     Normalised features at test locations
+        """
 
-    #     self.gp.eval()
-    #     self.likelihood.eval()
-    #     with torch.no_grad(), gpytorch.settings.fast_pred_var():
-    #         observed_pred = self.likelihood(self.gp(X_test))
-    #         # Dont vstack
-    #         pred_mean = observed_pred.mean
-    #         lower_norm, upper_norm  = observed_pred.confidence_region()
-    #         mu = pred_mean.numpy()
+        X_test = torch.tensor(X_test, dtype=torch.float32)
 
-    #     # Return the un-standardised calculations if required
-    #     if self.normalise_y is True:
-    #         mu = self.Y_std * mu + self.Y_mu
-    #         lower = self.Y_std * lower_norm.numpy() + self.Y_mu
-    #         upper = self.Y_std * upper_norm.numpy() + self.Y_mu
+        self.gp.eval()
+        self.likelihood.eval()
+        with torch.no_grad(), gpytorch.settings.fast_pred_var():
+            observed_pred = self.likelihood(self.gp(X_test))
+            # Dont vstack
+            pred_mean = observed_pred.mean
+            lower_norm, upper_norm  = observed_pred.confidence_region()
+            mu = pred_mean.numpy()
 
-    #     return mu, lower, upper
+        # Return the un-standardised calculations if required
+        if self.normalise_y is True:
+            mu = self.Y_std * mu + self.Y_mu
+            lower = self.Y_std * lower_norm.numpy() + self.Y_mu
+            upper = self.Y_std * upper_norm.numpy() + self.Y_mu
 
-    # def train(self, tol=12):
-    #     """
-    #         The present algorithm first performs clustering with a 
-    #         Dirichlet Process mixture model (DP method).
-    #         Then, it uses the inferred noise structure to train a standard
-    #         GP. The OMGP predictive distribution is used to incorporate the
-    #         responsibilities in realise new estimates of the latent function.
+        return mu, lower, upper
+
+    def train(self, tol=12):
+        """
+            The present algorithm first performs clustering with a 
+            Dirichlet Process mixture model (DP method).
+            Then, it uses the inferred noise structure to train a standard
+            GP. The OMGP predictive distribution is used to incorporate the
+            responsibilities in realise new estimates of the latent function.
             
-    #         Estimates
-    #         ---------
+            Estimates
+            ---------
             
-    #         - indices: The indices of the clustered observations, equivalent
-    #                     to estimate the latent variables Z (Paper Diego).
+            - indices: The indices of the clustered observations, equivalent
+                        to estimate the latent variables Z (Paper Diego).
                         
-    #         - pies: Mixture proportionalities.
+            - pies: Mixture proportionalities.
             
-    #         - K_opt: The number of components in the mixture.
+            - K_opt: The number of components in the mixture.
             
-    #         - hyperparameters: The optimum GP kernel hyperparameters
-    #     """
+            - hyperparameters: The optimum GP kernel hyperparameters
+        """
         
-    #     # Initialise variables and parameters
-    #     errors = self.init_errors   # The residuals 
-    #     K0 = self.init_K            # K upper bound
-    #     max_iter = self.N_iter      # Prevent infinite loop
-    #     i = 0                       # Count the number of iterations
-    #     lnP = np.zeros((3*max_iter,1))
-    #     lnP[1] = float('inf')
+        # Initialise variables and parameters
+        errors = self.init_errors   # The residuals 
+        K0 = self.init_K            # K upper bound
+        max_iter = self.N_iter      # Prevent infinite loop
+        i = 0                       # Count the number of iterations
+
+        noise_var = self.likelihood.noise.item()
+        lnP = np.zeros((3*max_iter,1))
+        lnP[1] = float('inf')
         
-    #     # The log-likelihood(s) with the initial hyperparameters
-    #     lnP[i] = self.mll_eval
+        # The log-likelihood(s) with the initial hyperparameters
+        lnP[i] = self.mll_eval
         
-    #     # Stop if the change in the log-likelihood is no > than 10% of the 
-    #     # log-likelihood evaluated with the initial hyperparameters
-    #     tolerance = abs(lnP[0]*tol)/100
+        # Stop if the change in the log-likelihood is no > than 10% of the 
+        # log-likelihood evaluated with the initial hyperparameters
+        tolerance = abs(lnP[0]*tol)/100
         
-    #     while i < max_iter:
-    #         """
-    #         CLUSTERING
-    #         """
-    #         index, X0, Y0, resp0, pies, stds, K = self.DP(self.X_org, self.Y_org,
-    #                                                       errors, K0)
+        while i < max_iter:
+            """
+            CLUSTERING
+            """
+            index, X0, Y0, resp0, pies, stds, K = self.DP(self.X_org, self.Y_org,
+                                                          errors, K0)
             
-    #         # In case I want to know the initial mixure parameters
-    #         if i == 1:
-    #             self.init_sigmas = stds
-    #             self.init_pies = pies
+            # In case I want to know the initial mixure parameters
+            if i == 1:
+                self.init_sigmas = stds
+                self.init_pies = pies
                 
-    #         K0 = self.init_K
-    #         self.resp = resp0
+            K0 = self.init_K
+            self.resp = resp0
 
-    #         """
-    #         REGRESSION
-    #         """
-    #         # Assemble training data
-    #         X0 = torch.tensor(X0[0:self.N:2, :], dtype=torch.float32)
-    #         Y0 = torch.tensor(Y0[0:self.N:2, 0], dtype=torch.float32)
+            """
+            REGRESSION
+            """
+            # Assemble training data
+            X0 = torch.tensor(X0, dtype=torch.float32)
+            Y0 = torch.tensor(Y0[:,0], dtype=torch.float32)
 
-    #         # X0 = torch.tensor(X0, dtype=torch.float32)
-    #         # Y0 = torch.tensor(Y0[:,0], dtype=torch.float32)
-
-    #         # Get GPytorch model
-    #         if self.gp_model == ApproximateGP:
-    #             ind_points = self.X[::self.n_inducing]
-    #             ind_points[0] = self.X[0]
-    #             ind_points[-1]= self.X[self.N-1]
-    #             self.gp = SparseGP(ind_points)
-    #         else:
-    #             self.gp = ExactGP(X0, Y0, self.likelihood)
-
-    #             # Assign mean and covariance modules
-    #             self.gp.mean_module = self.mu0
-    #             self.gp.covar_module = self.kernel
-
-    #             # Define the forward method
-    #             def forward(self, x):
-    #                 mean_x = self.mean_module(x)
-    #                 covar_x = self.covar_module(x)
-    #                 return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
-
-    #             # Dynamically add the forward method to the model
-    #             self.gp.forward = types.MethodType(forward, self.gp)
-
-
-    #         # Initialize hyperparameters
-    #         # ls = self.model.covar_module.base_kernel.lengthscale.item()
-    #         # self.gp.covar_module.base_kernel.lengthscale = ls
-    #         # self.likelihood.noise = self.likelihood.noise.item()
-    #         self.likelihood.noise = 0.003
-
-    #         # Train model
-    #         self.gp.train()
-    #         self.likelihood.train()
-
-    #         optimizer = torch.optim.Adam(self.gp.parameters(), lr=0.01)
-
-    #         if self.gp_model == ApproximateGP:
-    #             mll = VariationalELBO(self.likelihood, self.gp, Y0.numel())
-    #         else:
-    #             mll = ExactMarginalLogLikelihood(self.likelihood, self.gp)
-
-    #         for conteo in range(100):
-    #             optimizer.zero_grad()
-    #             output = self.gp(X0)
-    #             loss = -mll(output, Y0)
-    #             loss.backward()
-    #             optimizer.step()
-
-    #         self.mll_eval = loss
-
-    #         # Predictions
-    #         self.gp.eval()
-    #         self.likelihood.eval()
-    #         with torch.no_grad(), gpytorch.settings.fast_pred_var():
-    #             observed_pred = self.likelihood(self.gp(self.X))
-
-    #             # ! Always vstack mu and not the errors (issues otherwise)
-    #             pred_mean = observed_pred.mean
-    #             mu = np.vstack(pred_mean.numpy())
-
-    #         errors = self.Y_org - mu
+            self.gp = SparseGP(X0, Y0,
+                               self.likelihood,
+                               self.mu0, self.kernel, noise_var)
             
-    #         # Model convergence is controlled with the standard GP likelihood
-    #         lnP[i+1] = loss.detach().numpy()
+            # Train model
+            self.gp.train()
+            self.likelihood.train()
 
-    #         print('Training...\n Iteration: ', i, ' tolerance: ', tolerance,
-    #               ' calculated(GP): ', abs(lnP[i+1] - lnP[i]), '\n')
-    #         # Print the estimated hyperparameters
-    #         print("Lengthscale:", self.model.covar_module.base_kernel.lengthscale.item())
-    #         print("Outputscale:", self.model.covar_module.outputscale.item())
-    #         print("Noise:", self.likelihood.noise.item())
+            optimizer = torch.optim.Adam(self.gp.parameters(), lr=0.01)
+            mll = ExactMarginalLogLikelihood(self.likelihood, self.gp)
+
+            for conteo in range(100):
+                optimizer.zero_grad()
+                output = self.gp(X0)
+                loss = -mll(output, Y0)
+                loss.backward()
+                optimizer.step()
+
+            # Predictions
+            self.gp.eval()
+            self.likelihood.eval()
+            with torch.no_grad(), gpytorch.settings.fast_pred_var():
+                observed_pred = self.likelihood(self.gp(self.X))
+
+                # ! Always vstack mu and not the errors (issues otherwise)
+                pred_mean = observed_pred.mean
+                mu = np.vstack(pred_mean.numpy())
+
+            errors = self.Y_org - mu
             
-    #         if self.plot_sol:
-    #             if self.gp_model == ApproximateGP:
-    #                 estimated_z = self.gp.variational_strategy.inducing_points.detach().numpy()
-    #                 self.plot_solution(K, index, mu, i)
-    #             else:
-    #                 self.plot_solution(K, index, mu, i)
+            # Model convergence is controlled with the standard GP likelihood
+            lnP[i+1] = loss.detach().numpy()
 
+            print('\nTraining...\n Iteration: ', i, ' tolerance: ', tolerance,
+                  ' calculated(GP): ', abs(lnP[i+1] - lnP[i]), '\n')
+            # Print the estimated hyperparameters
+            print("Outputscale:", self.gp.covar_module.base_kernel.outputscale.item())
+            print("Lengthscale:", self.gp.covar_module.base_kernel.base_kernel.lengthscale.item())
+            print("Noise:", self.likelihood.noise.item())
+
+            if self.plot_sol:
+                self.plot_solution(K, index, mu, i)
                 
-    #         if abs(lnP[i+1] - lnP[i]) < tolerance:
-    #             print('\n Model trained')
-    #             break
+            if abs(lnP[i+1] - lnP[i]) < tolerance:
+                print('\n Model trained')
+                break
                 
-    #         i += 1
+            i += 1
             
-    #         if i == max_iter:
-    #             print('\n The model did not converge after ', max_iter,
-    #                   ' iterations')
+            if i == max_iter:
+                print('\n The model did not converge after ', max_iter,
+                      ' iterations')
                         
-    #     # If specified, plot model convergence
-    #     if self.plot_conv:
-    #         self.plot_convergence(lnP, 'DPSGP: Regression step convergence')
+        # If specified, plot model convergence
+        if self.plot_conv:
+            self.plot_convergence(lnP, 'DPSGP: Regression step convergence')
             
-    #     # Capture and save the estimated parameters
-    #     index, X0, Y0, resp0, pies, stds, K = self.DP(self.X_org, self.Y_org,
-    #                                                   errors, K)
-    #     self.indices = index
-    #     self.resp = resp0
-    #     self.pies = pies
-    #     self.stds = stds
-    #     self.K_opt = K
-        
-    #     # Return the unornalised values
-    #     if self.normalise_y is True:
-    #         for k in range(self.K_opt):
-    #             self.stds[k] = self.stds[k] * self.Y_std
+        # Capture and save the estimated parameters
+        index, X0, Y0, resp0, pies, stds, K = self.DP(self.X_org, self.Y_org,
+                                                      errors, K)
+        self.indices = index
+        self.resp = resp0
+        self.pies = pies
+        self.stds = stds
+        self.K_opt = K
+
+        # get estimated hyperparameters
+        if self.gp_model == 'Sparse':
+            self._z_normalised = self.gp.covar_module.inducing_points.detach().numpy()
+            self._z_indices = self.get_z_indices(X0, self._z_normalised)
+
+        # Return the unornalised values
+        if self.normalise_y is True:
+            for k in range(self.K_opt):
+                self.stds[k] = self.stds[k] * self.Y_std
