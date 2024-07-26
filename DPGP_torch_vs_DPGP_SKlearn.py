@@ -51,7 +51,7 @@ from gpytorch.kernels import ScaleKernel, RBFKernel as RBF
 prior_cov = ScaleKernel(RBF(lengthscale=0.9))
 
 gp = DPSGP(X, y, init_K=8,
-           gp_model=ApproximateGP, kernel=prior_cov,
+           gp_model=ExactGP, kernel=prior_cov,
            n_inducing=2, normalise_y=True,
            plot_conv=True, plot_sol=True)
 gp.train()
