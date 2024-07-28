@@ -392,11 +392,11 @@ class DirichletProcessSparseGaussianProcess():
             REGRESSION
             """
             # Assemble training data
-            X0 = torch.tensor(X0[0:self.N:2, :], dtype=torch.float32)
-            Y0 = torch.tensor(Y0[0:self.N:2, 0], dtype=torch.float32)
+            # X0 = torch.tensor(X0[0:self.N:2, :], dtype=torch.float32)
+            # Y0 = torch.tensor(Y0[0:self.N:2, 0], dtype=torch.float32)
 
-            # X0 = torch.tensor(X0, dtype=torch.float32)
-            # Y0 = torch.tensor(Y0[:,0], dtype=torch.float32)
+            X0 = torch.tensor(X0, dtype=torch.float32)
+            Y0 = torch.tensor(Y0[:,0], dtype=torch.float32)
 
             # Get GPytorch model
             if self.gp_model == ApproximateGP:

@@ -3,9 +3,13 @@ from sklearn.preprocessing import StandardScaler as ss
 import numpy as np
 import pandas as pd
 import torch
-import time
 import paths
+import time
 import matplotlib.pyplot as plt
+
+"""
+Using un-standardised inputs produces better results
+"""
 
 file_name = paths.get_synthetic_path('Synthetic.xlsx')
 df = pd.read_excel(file_name, sheet_name='Training')
@@ -31,10 +35,10 @@ test_scaler = ss()
 X_test_norm = test_scaler.fit_transform(X_test.reshape(-1,1))
 
 # Convert data to torch tensors
-X_temp = torch.tensor(X_norm, dtype=torch.float64)
+X_temp = torch.tensor(X_norm, dtype=torch.float32)
 
 # Inducing points
-inducing_points = X_temp[::2].clone()
+inducing_points = X_temp[::10].clone()
 
 from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.means import ConstantMean
@@ -44,38 +48,27 @@ from gpytorch.kernels import InducingPointKernel, ScaleKernel, RBFKernel as RBF
 """
 Sparse GP with InducingPointKernel
 """
+covar_module = ScaleKernel(RBF(lengthscale=0.9))
 likelihood = GaussianLikelihood()
-base_covar_module = ScaleKernel(RBF(lengthscale=0.9))
-covar_module = InducingPointKernel(base_covar_module,
-                                   inducing_points=inducing_points,
-                                   likelihood=likelihood)
 
 start_time = time.time()
-gp = Diego(X_norm, y, init_K=8,
-           gp_model='Sparse',
+gp = Diego(X, y, init_K=8,
+           gp_model='Standard',
            prior_mean=ConstantMean(), kernel=covar_module,
            noise_var = 0.05,
            normalise_y=True,
-           N_iter=8,
            print_conv=False, plot_conv=True, plot_sol=False)
 gp.train()
-
-mu, lower, upper = gp.predict(X_test_norm)
+mu, lower, upper = gp.predict(X_test)
 comp_time = time.time() - start_time
-
-# get the indices of the estimated inducing inputs/points
-z_indices = gp._z_indices
 
 # Real function
 F = 150 * X_test * np.sin(X_test)
 
 from sklearn.metrics import mean_squared_error
 
-# Print computational times
 print(f"Training time: {comp_time:.2f} seconds")
-print(f'\nMean Squared Error (DPSGP): {mean_squared_error(mu, F):.2f}')
-
-# print("\nMean Squared Error (DPSGP)   : ", mean_squared_error(mu, F))
+print("\nMean Squared Error (DPSGP)   : ", mean_squared_error(mu, F))
 #-----------------------------------------------------------------------------
 # REGRESSION PLOT
 #-----------------------------------------------------------------------------
@@ -83,22 +76,12 @@ X0, y0 = X[gp.indices[0]], y[gp.indices[0]]
 
 fig, ax = plt.subplots()
 # inducing inputs
-plt.plot(X0[z_indices], y0[z_indices], '*', color='lightgreen', markersize=8)
 plt.plot(X_test, F, color='black', linewidth = 4, label='Sine function')
 plt.plot(X_test, mu, color='red', linewidth = 4,
          label='DPSGP-torch')
 plt.title('Regression Performance', fontsize=20)
 plt.xlabel('x', fontsize=16)
 plt.ylabel('f(x)', fontsize=16)
-ax.vlines(
-    x=X0[z_indices],
-    ymin=y.min().item(),
-    ymax=y.max().item(),
-    alpha=0.3,
-    linewidth=1.5,
-    label="z*",
-    color='green'
-)
 plt.legend(prop={"size":20})
 
 # ----------------------------------------------------------------------------
@@ -120,7 +103,6 @@ for i, (k, c) in enumerate(zip(enumerate_K, color_iter)):
              markersize = 10, label=nl[k])
 
 plt.plot(X_test, mu, linewidth=4, color='green', label='DDPSGP')
-plt.plot(X0[z_indices], y0[z_indices], '*', color='lightgreen', markersize=8, label='z*')
 plt.xlabel('x', fontsize=16)
 plt.ylabel('f(x)', fontsize=16)
 plt.legend(prop={"size":20})

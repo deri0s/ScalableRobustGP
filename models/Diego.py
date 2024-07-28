@@ -9,7 +9,6 @@ from gpytorch.kernels import RBFKernel as RBF
 from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.distributions import MultivariateNormal
 from gpytorch.mlls import ExactMarginalLogLikelihood
-from scipy.spatial import cKDTree
 
 """
 A Robust Sparse Gaussian Process regression aprroach based on Dirichlet Process
@@ -17,6 +16,12 @@ clustering and Sparse Gaussian Process regression for scenarios where
 the measurement noise is assumed to be generated from a mixture of Gaussian
 distributions. The proposed class inherits attributes and methods from the
 GPyTorch classes.
+
+!Note:
+- Sometimes normalising the inputs produces worst results compared to using the
+un-normalised inputs when doing standard GP regression
+
+- Normalise the features when doing Sparse GP regression. Not working otherwise
 
 Diego Echeverria Rios (Derios) & P.L.Green
 """
@@ -36,20 +41,19 @@ class SparseGP(ExactGP):
 class DirichletProcessSparseGaussianProcess():
     def __init__(self, X, Y, init_K,
                  gp_model='Sparse',
-                 prior_mean = gpytorch.means.ConstantMean(),
+                 prior_mean=gpytorch.means.ConstantMean(),
                  kernel=RBF(),
                  likelihood=GaussianLikelihood(),
                  noise_var = 0.05,
                  normalise_y=False, N_iter=8, DP_max_iter=70,
+                 print_conv=False,
                  plot_conv=False, plot_sol=False):
         
                 """ 
                     Initialising variables and parameters
                 """
-                
-                # Standardised features (not working if these are not standardised)
                 self.X_org = np.vstack(X)       # Required for DP clustering
-                self.X = torch.tensor(X, dtype=torch.float32)
+                self.X = torch.tensor(X, dtype=torch.float64)
                 self.Y = Y                      # Targets never vstacked
                 self.N = len(Y)                 # No. training points
                 self.D = self.X.dim()           # No. Dimensions
@@ -58,9 +62,10 @@ class DirichletProcessSparseGaussianProcess():
                 self.kernel = kernel
                 self.N_iter = N_iter            # Max number of iterations (DPGP)
                 self.DP_max_iter = DP_max_iter  # Max number of iterations (DP)
-                self.plot_conv = plot_conv
-                self.plot_sol = plot_sol
-                self.gp_model = gp_model
+                self.print_conv = print_conv    # Print hyperparameter estimation at each step
+                self.plot_conv = plot_conv      # Plot neg-margigal-log-likelihood
+                self.plot_sol = plot_sol        # Plot clustering at each step
+                self.gp_model = gp_model        # Standard or Sparse GP regression for now
                 
                 # The upper bound of the number of Gaussian noise sources
                 self.init_K = init_K
@@ -75,7 +80,7 @@ class DirichletProcessSparseGaussianProcess():
                 self.Y_org = np.vstack(self.Y)
 
                 # convert y to tensor for torch
-                self.Y = torch.tensor(self.Y, dtype=torch.float32)
+                self.Y = torch.tensor(self.Y, dtype=torch.float64)
 
                 self.likelihood = likelihood
 
@@ -98,14 +103,16 @@ class DirichletProcessSparseGaussianProcess():
                     loss.backward()
                     optimizer.step()
 
-                # Print the estimated hyperparameters
-                print('\nThe very first estimated hyperparameters')
-                print("Lengthscale:", self.model.covar_module.base_kernel.base_kernel.lengthscale.item())
-                print("Outputscale:", self.model.covar_module.base_kernel.outputscale.item())
-                print("Noise:", self.likelihood.noise.item(), '\n')
-
-                if self.gp_model == 'Sparse':
-                    _z = self.model.covar_module.inducing_points.detach().numpy()
+                # Print the estimated hyperparameters?
+                if self.print_conv:
+                    print('\nThe very first estimated hyperparameters')
+                    if self.gp_model == 'Sparse':
+                        print("Outputscale:", self.model.covar_module.base_kernel.outputscale.item())
+                        print("Lengthscale:", self.model.covar_module.base_kernel.base_kernel.lengthscale.item())
+                    else:
+                        print("Outputscale:", self.model.covar_module.outputscale.item())
+                        print("Lengthscale:", self.model.covar_module.base_kernel.lengthscale.item())
+                    print("Noise:", self.likelihood.noise.item(), '\n')
 
                 # model evaluation
                 self.mll_eval = loss.detach().numpy()
@@ -129,15 +136,16 @@ class DirichletProcessSparseGaussianProcess():
                     plt.rc('xtick', labelsize=14)
                     plt.rc('ytick', labelsize=14)
                     if gp_model == 'Sparse':
+                        _z = self.model.covar_module.inducing_points.detach().numpy()
                         ax.vlines(
-                        x=self.X[::10],
-                        ymin=self.Y.min().item(),
-                        ymax=self.Y.max().item(),
-                        alpha=0.3,
-                        linewidth=1.5,
-                        ls='--',
-                        label="z0",
-                        color='grey'
+                            x=self.X[::10],
+                            ymin=self.Y.min().item(),
+                            ymax=self.Y.max().item(),
+                            alpha=0.3,
+                            linewidth=1.5,
+                            ls='--',
+                            label="z0",
+                            color='grey'
                         )
                         ax.vlines(
                             x=_z,
@@ -290,7 +298,7 @@ class DirichletProcessSparseGaussianProcess():
         X_test:     Normalised features at test locations
         """
 
-        X_test = torch.tensor(X_test, dtype=torch.float32)
+        X_test = torch.tensor(X_test, dtype=torch.float64)
 
         self.gp.eval()
         self.likelihood.eval()
@@ -366,8 +374,8 @@ class DirichletProcessSparseGaussianProcess():
             REGRESSION
             """
             # Assemble training data
-            X0 = torch.tensor(X0, dtype=torch.float32)
-            Y0 = torch.tensor(Y0[:,0], dtype=torch.float32)
+            X0 = torch.tensor(X0, dtype=torch.float64)
+            Y0 = torch.tensor(Y0[:,0], dtype=torch.float64)
 
             self.gp = SparseGP(X0, Y0,
                                self.likelihood,
@@ -398,16 +406,23 @@ class DirichletProcessSparseGaussianProcess():
                 mu = np.vstack(pred_mean.numpy())
 
             errors = self.Y_org - mu
+            # Update hyperparameters
+            noise_var = self.likelihood.noise.item()
             
             # Model convergence is controlled with the standard GP likelihood
             lnP[i+1] = loss.detach().numpy()
 
-            print('\nTraining...\n Iteration: ', i, ' tolerance: ', tolerance,
-                  ' calculated(GP): ', abs(lnP[i+1] - lnP[i]), '\n')
-            # Print the estimated hyperparameters
-            print("Outputscale:", self.gp.covar_module.base_kernel.outputscale.item())
-            print("Lengthscale:", self.gp.covar_module.base_kernel.base_kernel.lengthscale.item())
-            print("Noise:", self.likelihood.noise.item())
+            if self.print_conv:
+                print('\nTraining...\n Iteration: ', i, ' tolerance: ', tolerance,
+                      ' calculated(GP): ', abs(lnP[i+1] - lnP[i]), '\n')
+                if self.gp_model=='Sparse':
+                    print("Outputscale:", self.gp.covar_module.base_kernel.outputscale.item())
+                    print("Lengthscale:", self.gp.covar_module.base_kernel.base_kernel.lengthscale.item())
+                else:
+                    print("Outputscale:", self.gp.covar_module.outputscale.item())
+                    print("Lengthscale:", self.gp.covar_module.base_kernel.lengthscale.item())
+                print("Noise:", self.likelihood.noise.item())
+
 
             if self.plot_sol:
                 self.plot_solution(K, index, mu, i)
