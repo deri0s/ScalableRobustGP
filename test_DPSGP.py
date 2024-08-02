@@ -1,5 +1,4 @@
-from models.Diego import DirichletProcessSparseGaussianProcess as Diego
-from sklearn.preprocessing import StandardScaler as ss
+from models.DPSGP_gpytorch import DirichletProcessSparseGaussianProcess as DPSGP_gpytorch
 from sklearn.preprocessing import MinMaxScaler as minmax
 import numpy as np
 import pandas as pd
@@ -31,11 +30,9 @@ N = len(y)
 X_test = x_test_df['X_star'].values
 
 # Normalize features
-# train_scaler = ss()
 train_scaler = minmax()
 X_norm = train_scaler.fit_transform(X.reshape(-1,1))
 
-# test_scaler = ss()
 test_scaler = minmax()
 X_test_norm = test_scaler.fit_transform(X_test.reshape(-1,1))
 
@@ -61,14 +58,13 @@ covar_module = InducingPointKernel(base_covar_module,
                                    likelihood=likelihood)
 
 start_time = time.time()
-gp = Diego(X_norm, y, init_K=8,
-           gp_model='Sparse',
-           prior_mean=ConstantMean(), kernel=covar_module,
-           noise_var = 0.05,
-           floating_point=floating_point,
-           normalise_y=True,
-           N_iter=8,
-           print_conv=False, plot_conv=True, plot_sol=False)
+gp = DPSGP_gpytorch(X_norm, y, init_K=8,
+                    gp_model='Sparse',
+                    prior_mean=ConstantMean(), kernel=covar_module,
+                    noise_var = 0.05,
+                    floating_point=floating_point,
+                    normalise_y=True,
+                    print_conv=False, plot_conv=True, plot_sol=False)
 gp.train()
 
 mu, lower, upper = gp.predict(X_test_norm)
@@ -90,7 +86,6 @@ from sklearn.metrics import mean_squared_error
 print(f"\nComputational time: {comp_time:.2f} seconds")
 print(f'\nMean Squared Error (DPSGP): {mean_squared_error(mu, F):.2f}')
 
-# print("\nMean Squared Error (DPSGP)   : ", mean_squared_error(mu, F))
 #-----------------------------------------------------------------------------
 # REGRESSION PLOT
 #-----------------------------------------------------------------------------

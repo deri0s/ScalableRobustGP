@@ -17,10 +17,6 @@ the measurement noise is assumed to be generated from a mixture of Gaussian
 distributions. The proposed class inherits attributes and methods from the
 GPyTorch classes.
 
-!Note:
-- Sometimes normalising the inputs produces worst results compared to using the
-un-normalised inputs when doing standard GP regression
-
 - Normalise the features when doing Sparse GP regression. Not working otherwise
 
 Diego Echeverria Rios (Derios) & P.L.Green

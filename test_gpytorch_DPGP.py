@@ -1,4 +1,4 @@
-from models.Diego import DirichletProcessSparseGaussianProcess as Diego
+from models.DPSGP_gpytorch import DirichletProcessSparseGaussianProcess as DPSGP_gpytorch
 from sklearn.preprocessing import StandardScaler as ss
 from sklearn.preprocessing import MinMaxScaler as minmax
 import numpy as np
@@ -63,13 +63,13 @@ covar_module = ScaleKernel(RBF(lengthscale=0.9))
 likelihood = GaussianLikelihood()
 
 start_time = time.time()
-gp = Diego(X, y, init_K=8,
-           gp_model='Standard',
-           prior_mean=ConstantMean(), kernel=covar_module,
-           noise_var = 0.05,
-           floating_point=floating_point,
-           normalise_y=True,
-           print_conv=False, plot_conv=True, plot_sol=False)
+gp = DPSGP_gpytorch(X, y, init_K=8,
+                    gp_model='Standard',
+                    prior_mean=ConstantMean(), kernel=covar_module,
+                    noise_var = 0.05,
+                    floating_point=floating_point,
+                    normalise_y=True,
+                    print_conv=False, plot_conv=True, plot_sol=False)
 gp.train()
 mu, lower, upper = gp.predict(X_test)
 comp_time = time.time() - start_time
