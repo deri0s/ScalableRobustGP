@@ -45,6 +45,7 @@ class DirichletProcessSparseGaussianProcess():
                  kernel=RBF(),
                  likelihood=GaussianLikelihood(),
                  noise_var = 0.05,
+                 floating_point = torch.float32,
                  normalise_y=False, N_iter=8, DP_max_iter=70,
                  print_conv=False,
                  plot_conv=False, plot_sol=False):
@@ -52,8 +53,9 @@ class DirichletProcessSparseGaussianProcess():
                 """ 
                     Initialising variables and parameters
                 """
+                self.floating_point = floating_point
                 self.X_org = np.vstack(X)       # Required for DP clustering
-                self.X = torch.tensor(X, dtype=torch.float64)
+                self.X = torch.tensor(X, dtype=self.floating_point)
                 self.Y = Y                      # Targets never vstacked
                 self.N = len(Y)                 # No. training points
                 self.D = self.X.dim()           # No. Dimensions
@@ -80,7 +82,7 @@ class DirichletProcessSparseGaussianProcess():
                 self.Y_org = np.vstack(self.Y)
 
                 # convert y to tensor for torch
-                self.Y = torch.tensor(self.Y, dtype=torch.float64)
+                self.Y = torch.tensor(self.Y, dtype=self.floating_point)
 
                 self.likelihood = likelihood
 
@@ -298,7 +300,7 @@ class DirichletProcessSparseGaussianProcess():
         X_test:     Normalised features at test locations
         """
 
-        X_test = torch.tensor(X_test, dtype=torch.float64)
+        X_test = torch.tensor(X_test, dtype=self.floating_point)
 
         self.gp.eval()
         self.likelihood.eval()
@@ -374,8 +376,8 @@ class DirichletProcessSparseGaussianProcess():
             REGRESSION
             """
             # Assemble training data
-            X0 = torch.tensor(X0, dtype=torch.float64)
-            Y0 = torch.tensor(Y0[:,0], dtype=torch.float64)
+            X0 = torch.tensor(X0, dtype=self.floating_point)
+            Y0 = torch.tensor(Y0[:,0], dtype=self.floating_point)
 
             self.gp = SparseGP(X0, Y0,
                                self.likelihood,

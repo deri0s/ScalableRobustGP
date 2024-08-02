@@ -1,5 +1,6 @@
 from models.Diego import DirichletProcessSparseGaussianProcess as Diego
 from sklearn.preprocessing import StandardScaler as ss
+from sklearn.preprocessing import MinMaxScaler as minmax
 import numpy as np
 import pandas as pd
 import torch
@@ -9,6 +10,13 @@ import matplotlib.pyplot as plt
 
 """
 Using un-standardised inputs produces better results
+"""
+"""Best results
+- Standarise inputs: MinMaxScaler [0,1]
+- Standardise outputs: StandardScaler
+- torch.float32 or torch.float64 (not big difference)
+        ^                ^
+-     faster            slower   (around 1 sec difference) 
 """
 
 file_name = paths.get_synthetic_path('Synthetic.xlsx')
@@ -28,21 +36,24 @@ N = len(y)
 X_test = x_test_df['X_star'].values
 
 # Normalize features
-train_scaler = ss()
+# train_scaler = ss()
+train_scaler = minmax()
 X_norm = train_scaler.fit_transform(X.reshape(-1,1))
 
-test_scaler = ss()
+# test_scaler = ss()
+test_scaler = minmax()
 X_test_norm = test_scaler.fit_transform(X_test.reshape(-1,1))
 
 # Convert data to torch tensors
-X_temp = torch.tensor(X_norm, dtype=torch.float32)
+floating_point = torch.float64
+X_temp = torch.tensor(X_norm, dtype=floating_point)
 
 # Inducing points
 inducing_points = X_temp[::10].clone()
 
 from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.means import ConstantMean
-from gpytorch.kernels import InducingPointKernel, ScaleKernel, RBFKernel as RBF
+from gpytorch.kernels import ScaleKernel, RBFKernel as RBF
 
 
 """
@@ -56,18 +67,24 @@ gp = Diego(X, y, init_K=8,
            gp_model='Standard',
            prior_mean=ConstantMean(), kernel=covar_module,
            noise_var = 0.05,
+           floating_point=floating_point,
            normalise_y=True,
            print_conv=False, plot_conv=True, plot_sol=False)
 gp.train()
 mu, lower, upper = gp.predict(X_test)
 comp_time = time.time() - start_time
 
+print("\nEstimated hyperparameters")
+print("Outputscale:", gp.gp.covar_module.outputscale.item())
+print("Lengthscale:", gp.gp.covar_module.base_kernel.lengthscale.item())
+print("Noise:", gp.gp.likelihood.noise.item())
+
 # Real function
 F = 150 * X_test * np.sin(X_test)
 
 from sklearn.metrics import mean_squared_error
 
-print(f"Training time: {comp_time:.2f} seconds")
+print(f"\nComputational time: {comp_time:.2f} seconds")
 print("\nMean Squared Error (DPSGP)   : ", mean_squared_error(mu, F))
 #-----------------------------------------------------------------------------
 # REGRESSION PLOT
