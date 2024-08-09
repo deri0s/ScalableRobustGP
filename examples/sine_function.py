@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+
 from models.DGP import DistributedGP as DGP
 from models.DDPGP import DistributedDPGP as DDPGP
 
