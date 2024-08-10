@@ -4,7 +4,6 @@ from sklearn.preprocessing import MinMaxScaler as minmax
 import numpy as np
 import pandas as pd
 import torch
-import paths
 import time
 import matplotlib.pyplot as plt
 
@@ -19,7 +18,8 @@ Using un-standardised inputs produces better results
 -     faster            slower   (around 1 sec difference) 
 """
 
-file_name = paths.get_synthetic_path('Synthetic.xlsx')
+# file_name = paths.get_synthetic_path('Synthetic.xlsx')
+file_name = 'Synthetic.xlsx'
 df = pd.read_excel(file_name, sheet_name='Training')
 
 # Read data

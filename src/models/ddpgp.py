@@ -2,7 +2,7 @@ from pathlib import Path
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.gaussian_process import GaussianProcessRegressor as GPR
-from models.DPGP import DirichletProcessGaussianProcess as DPGP
+from models.dpgp import DirichletProcessGaussianProcess as DPGP
 import yaml
 import matplotlib.pyplot as plt
 
