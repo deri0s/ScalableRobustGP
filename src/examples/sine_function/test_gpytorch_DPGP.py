@@ -1,4 +1,4 @@
-from models.DPSGP_gpytorch import DirichletProcessSparseGaussianProcess as DPSGP_gpytorch
+from models.dpsgp_gpytorch import DirichletProcessSparseGaussianProcess as DPSGP_gpytorch
 from sklearn.preprocessing import StandardScaler as ss
 from sklearn.preprocessing import MinMaxScaler as minmax
 import numpy as np
