@@ -303,17 +303,19 @@ class DirichletProcessSparseGaussianProcess():
         with torch.no_grad(), gpytorch.settings.fast_pred_var():
             observed_pred = self.likelihood(self.gp(X_test))
             # Dont vstack
-            pred_mean = observed_pred.mean
-            lower_norm, upper_norm  = observed_pred.confidence_region()
-            mu = pred_mean.numpy()
+            mu_norm = observed_pred.mean.numpy()
+            std_norm = observed_pred.stddev.numpy()
+            # pred_mean = observed_pred.mean.numpy()
+            # pred_var = observed_pred.variance.numpy()
+            # mu_norm = pred_mean.numpy()
+            # var_norm = pred_var.numpy()
 
         # Return the un-standardised calculations if required
         if self.normalise_y is True:
-            mu = self.Y_std * mu + self.Y_mu
-            lower = self.Y_std * lower_norm.numpy() + self.Y_mu
-            upper = self.Y_std * upper_norm.numpy() + self.Y_mu
+            mu = self.Y_std * mu_norm + self.Y_mu
+            var= self.Y_std * std_norm
 
-        return mu, lower, upper
+        return mu, var
 
     def train(self, tol=12):
         """

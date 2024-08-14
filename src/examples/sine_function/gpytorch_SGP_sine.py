@@ -10,8 +10,7 @@ from gpytorch.distributions import MultivariateNormal
 import matplotlib.pyplot as plt
 
 # Load the Excel file
-import paths
-file_name = paths.get_synthetic_path('Synthetic.xlsx')
+file_name = 'Synthetic.xlsx'
 df = pd.read_excel(file_name, sheet_name='Training')
 
 # Get training data
@@ -105,8 +104,9 @@ plt.rcdefaults()
 plt.rc('xtick', labelsize=14)
 plt.rc('ytick', labelsize=14)
 plt.plot(X.numpy(), y, 'o', color='black')
-plt.plot(X.numpy(), F, color='red', label='f(x)')
-plt.plot(X.numpy(), mu.numpy(), color='lightgreen', linewidth=2,
+plt.plot(X.numpy(), F, color='red', linewidth=3,
+         label='f(x)')
+plt.plot(X.numpy(), mu.numpy(), color='lightgreen', linewidth=3,
         label = 'SGP')
 ax.vlines(
     x=X[::10],
@@ -127,7 +127,8 @@ ax.vlines(
     label="z*",
     color='orange'
 )
-ax.set_xlabel("Date-time", fontsize=14)
-ax.set_ylabel("Fault density", fontsize=14)
+plt.title('GPyTorch Sparse GP using inducing point kernel')
+ax.set_xlabel("$x$", fontsize=14)
+ax.set_ylabel("$f(x)$", fontsize=14)
 plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
 plt.show()

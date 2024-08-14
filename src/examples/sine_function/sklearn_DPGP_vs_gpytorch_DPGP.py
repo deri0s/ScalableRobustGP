@@ -6,15 +6,6 @@ import torch
 import time
 import matplotlib.pyplot as plt
 
-"""
-Best results
-- Standarise inputs: MinMaxScaler [0,1]
-- Standardise outputs: StandardScaler
-- torch.float32 or torch.float64 (not big difference)
-        ^                ^
--     faster            slower   (around 1 sec difference) 
-"""
-
 # file_name = paths.get_synthetic_path('Synthetic.xlsx')
 file_name = 'Synthetic.xlsx'
 df = pd.read_excel(file_name, sheet_name='Training')
@@ -54,8 +45,16 @@ from gpytorch.kernels import ScaleKernel, RBFKernel as RBF
 
 
 """
-Sparse GP with InducingPointKernel
+GPyTorch
+
+Best results
+- Standarise inputs: MinMaxScaler [0,1]
+- Standardise outputs: StandardScaler
+- torch.float32 or torch.float64 (not big difference)
+        ^                ^
+-     faster            slower   (around 1 sec difference) 
 """
+
 covar_module = ScaleKernel(RBF(lengthscale=0.9))
 likelihood = GaussianLikelihood()
 
@@ -76,13 +75,38 @@ print("Outputscale:", gp.gp.covar_module.outputscale.item())
 print("Lengthscale:", gp.gp.covar_module.base_kernel.lengthscale.item())
 print("Noise:", gp.gp.likelihood.noise.item())
 
+"""
+SKLearn DPGP
+"""
+from sklearn.gaussian_process.kernels import RBF, WhiteKernel
+from models.dpgp import DirichletProcessGaussianProcess as DPGP
+from sklearn.metrics import mean_squared_error as mse
+
+# Covariance functions
+se = 1**2 * RBF(length_scale=0.94**2, length_scale_bounds=(0.07, 0.9))
+#                variance
+wn = WhiteKernel(noise_level=0.0025, noise_level_bounds=(1e-6,0.7))
+
+kernel = se + wn
+
+start_time = time.time()
+rgp = DPGP(X_norm, y, init_K=7, kernel=kernel, normalise_y=True, 
+           plot_sol=False, plot_conv=True)
+rgp.train(pseudo_sparse=False)
+mus, stds = rgp.predict(X_test_norm)
+comp_time = time.time() - start_time
+
+print('\nkernel: \n', rgp.kernel_)
+print('\nhyper: \n', rgp.hyperparameters)
+
 # Real function
 F = 150 * X_test * np.sin(X_test)
 
-from sklearn.metrics import mean_squared_error
-
 print(f"\nComputational time: {comp_time:.2f} seconds")
-print("\nMean Squared Error (DPSGP)   : ", mean_squared_error(mu, F))
+print("\nMean Squared Error (DPGP)")
+print(f"DPGP-SKLearn:  {mse(mus, F):.2f}")
+print(f'DPGP-GPyTorch: {mse(mu, F):.2f}')
+
 #-----------------------------------------------------------------------------
 # REGRESSION PLOT
 #-----------------------------------------------------------------------------
@@ -91,8 +115,8 @@ X0, y0 = X[gp.indices[0]], y[gp.indices[0]]
 fig, ax = plt.subplots()
 # inducing inputs
 plt.plot(X_test, F, color='black', linewidth = 4, label='Sine function')
-plt.plot(X_test, mu, color='red', linewidth = 4,
-         label='DPSGP-torch')
+plt.plot(X_test, mu, color='red', linewidth = 4, label='DPSGP-torch')
+plt.plot(X_test, mus, color='blue', linewidth = 4, label='DPSGP-sklearn')
 plt.title('Regression Performance', fontsize=20)
 plt.xlabel('x', fontsize=16)
 plt.ylabel('f(x)', fontsize=16)
@@ -109,7 +133,12 @@ plt.figure()
 plt.fill_between(X_test,
                  mu + 3*std, mu - 3*std,
                  alpha=0.5,color='lightcoral',
-                 label='3$\\sigma$ (DDPGP)')
+                 label='3$\\sigma$ (DPGP-torch)')
+
+plt.fill_between(X_test,
+                 mus + 3*std, mu - 3*std,
+                 alpha=0.5,color='lightblue',
+                 label='3$\\sigma$ (DPGP-sklearn)')
 
 plt.plot(X_test, F, color='black', linestyle='-', linewidth = 4,
          label='$f(x)$')
@@ -119,7 +148,8 @@ for i, (k, c) in enumerate(zip(enumerate_K, color_iter)):
     plt.plot(X[gp.indices[k]], y[gp.indices[k]], 'o',color=c,
              markersize = 10, label=nl[k])
 
-plt.plot(X_test, mu, linewidth=4, color='green', label='DDPSGP')
+plt.plot(X_test, mu, linewidth=4, color='red', label='DPGP-torch')
+plt.plot(X_test, mu, linewidth=4, color='blue', label='DPGP-sklearn')
 plt.xlabel('x', fontsize=16)
 plt.ylabel('f(x)', fontsize=16)
 plt.legend(prop={"size":20})
