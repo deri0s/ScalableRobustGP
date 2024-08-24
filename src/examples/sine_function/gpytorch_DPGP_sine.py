@@ -43,10 +43,6 @@ X_test_norm = test_scaler.fit_transform(X_test.reshape(-1,1))
 
 # Convert data to torch tensors
 floating_point = torch.float64
-X_temp = torch.tensor(X_norm, dtype=floating_point)
-
-# Inducing points
-inducing_points = X_temp[::10].clone()
 
 from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.means import ConstantMean
@@ -58,9 +54,9 @@ Sparse GP with InducingPointKernel
 """
 covar_module = ScaleKernel(RBF(lengthscale=0.9))
 likelihood = GaussianLikelihood()
-
+print('\n',type(X_norm))
 start_time = time.time()
-gp = DPSGP_gpytorch(X, y, init_K=8,
+gp = DPSGP_gpytorch(X_norm, y, init_K=8,
                     gp_model='Standard',
                     prior_mean=ConstantMean(), kernel=covar_module,
                     noise_var = 0.05,
@@ -68,7 +64,7 @@ gp = DPSGP_gpytorch(X, y, init_K=8,
                     normalise_y=True,
                     print_conv=False, plot_conv=True, plot_sol=False)
 gp.train()
-mu, std = gp.predict(X_test)
+mu, std = gp.predict(X_test_norm)
 comp_time = time.time() - start_time
 
 print("\nEstimated hyperparameters")

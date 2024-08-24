@@ -59,7 +59,7 @@ covar_module = ScaleKernel(RBF(lengthscale=0.9))
 likelihood = GaussianLikelihood()
 
 start_time = time.time()
-gp = DPSGP_gpytorch(X, y, init_K=8,
+gp = DPSGP_gpytorch(X_norm, y, init_K=8,
                     gp_model='Standard',
                     prior_mean=ConstantMean(), kernel=covar_module,
                     noise_var = 0.05,
@@ -67,7 +67,7 @@ gp = DPSGP_gpytorch(X, y, init_K=8,
                     normalise_y=True,
                     print_conv=False, plot_conv=True, plot_sol=False)
 gp.train()
-mu, std = gp.predict(X_test)
+mu, std = gp.predict(X_test_norm)
 comp_time = time.time() - start_time
 
 print("\nEstimated hyperparameters")

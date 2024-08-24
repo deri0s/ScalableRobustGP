@@ -46,7 +46,7 @@ class DirichletProcessSparseGaussianProcess():
                  print_conv=False,
                  plot_conv=False, plot_sol=False):
         
-                """ 
+                """
                     Initialising variables and parameters
                 """
                 self.floating_point = floating_point
