@@ -44,13 +44,14 @@ N, D = np.shape(X)
 start_train = y_df[y_df['Time stamp'] == '2021-04-01 00:00:00'].index[0]
 end_train = y_df[y_df['Time stamp'] == '2021-04-08 00:00:00'].index[0]
 model_N = 1
-print('\n\n Model : ', model_N)
+
 step = int(end_train - start_train)
-# end_train = start_train + int(model_N*step)
-end_test = N
+end_train = start_train + int(model_N*step)
 
 X_train, y_train = X[start_train:end_train], y_raw[start_train:end_train]
 N_train = len(y_train)
+
+end_test = end_train
 X_test, y_test = X[start_train:end_test], y_raw[start_train:end_test]
 
 date_time = date_time[start_train:end_test]
@@ -79,54 +80,87 @@ kernel = se + wn
 start_time = time.time()
 dpgp = DPGP(X_train, y_train, init_K=7, kernel=kernel, DP_max_iter=300)
 dpgp.train(pseudo_sparse=True)
+
+mu, std = dpgp.predict(X_train)
 comp_time = time.time() - start_time
 
 print(f'DPGP training time: {comp_time:.2f} seconds')
 
-# """
-# SAVE MODEL
-# """
-# from pathlib import Path
-# import pickle
+"""
+DPSGP
+"""
+import torch
+from gpytorch.likelihoods import GaussianLikelihood
+from gpytorch.means import ConstantMean
+from gpytorch.kernels import InducingPointKernel, ScaleKernel, RBFKernel as RBF
+from models.dpsgp_gpytorch import DirichletProcessSparseGaussianProcess as DPSGP
 
-# current_path = Path(__file__).resolve()
-# trained_path = current_path.parents[1] / 'trained'
-# model_path = trained_path / 'expert'+str(6)+'last_.pkl'
+# Convert data to torch tensors to input inducing points
+floating_point = torch.float64
+X_temp = torch.tensor(X_train, dtype=floating_point)
+inducing_points = X_temp[::10, :]
 
-# with open(model_path,'wb') as f:
-#     pickle.dump(dpgp,f)
+likelihood = GaussianLikelihood()
 
-# # predictions
-# mu, std = dpgp.predict(X_test)
+se = ScaleKernel(RBF(ard_num_dims=X_train.shape[-1],
+                     lengthscale=0.9))
+covar_module = InducingPointKernel(se,
+                                   inducing_points=inducing_points,
+                                   likelihood=likelihood)
 
-# # The estimated GP hyperparameters
-# print('\nEstimated hyper DRGP: ', dpgp.kernel_)
+start_time = time.time()
+gp = DPSGP(X_train, y_train, init_K=7,
+           gp_model='Sparse',
+           prior_mean=ConstantMean(), kernel=covar_module,
+           noise_var = 0.05,
+           floating_point=floating_point,
+           normalise_y=True,
+           print_conv=False, plot_conv=True, plot_sol=False)
+gp.train()
+mus, stds = gp.predict(X_train)
+comp_time = time.time() - start_time
 
-# #-----------------------------------------------------------------------------
-# # REGRESSION PLOT
-# #-----------------------------------------------------------------------------
+print(f'DPSGP training time: {comp_time:.2f} seconds')
 
-# fig, ax = plt.subplots()
+# get inducing points indices
+_z = gp._z_indices
 
-# # Increase the size of the axis numbers
-# plt.rcdefaults()
-# plt.rc('xtick', labelsize=14)
-# plt.rc('ytick', labelsize=14)
-# fig.autofmt_xdate()
+#-----------------------------------------------------------------------------
+# REGRESSION PLOT
+#-----------------------------------------------------------------------------
 
-# ax.fill_between(date_time,
-#                 mu + 3*std, mu - 3*std,
-#                 alpha=0.5, color='pink',
-#                 label='Confidence \nBounds (DPGP)')
-# ax.plot(date_time, y_raw, color='grey', label='Raw')
-# ax.plot(date_time, y_rect, color='blue', label='Filtered')
-# ax.plot(date_time, mu, color="red", linewidth = 2.5, label="DPGP")
-# plt.axvline(date_time[N_train-1], linestyle='--', linewidth=3,
-#             color='black')
-# ax.set_xlabel(" Date-time", fontsize=14)
-# ax.set_ylabel(" Fault density", fontsize=14)
-# plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
+fig, ax = plt.subplots()
 
+# Increase the size of the axis numbers
+plt.rcdefaults()
+plt.rc('xtick', labelsize=14)
+plt.rc('ytick', labelsize=14)
+fig.autofmt_xdate()
+
+print('date-time: ', np.shape(date_time))
+ax.fill_between(date_time,
+                mus + 3*stds, mus - 3*stds,
+                alpha=0.5, color='lightcoral',
+                label='3$\sigma$')
+ax.plot(date_time, y_raw, color='grey', label='Raw')
+ax.plot(date_time, y_rect, color='blue', label='Filtered')
+ax.plot(date_time, mu, color="green", linewidth = 2.5, label="DPGP")
+ax.plot(date_time, mus, color="red", linewidth = 2.5, label="DPSGP")
+plt.axvline(date_time[N_train-1], linestyle='--', linewidth=3,
+            color='black')
+# ax.vlines(
+#     x=_z,
+#     ymin=y_train.min().item(),
+#     ymax=y_train.max().item(),
+#     alpha=0.3,
+#     linewidth=1.5,
+#     label="z*",
+#     color='orange'
+# )
+ax.set_xlabel(" Date-time", fontsize=14)
+ax.set_ylabel(" Fault density", fontsize=14)
+plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
+plt.show()
 # # ----------------------------------------------------------------------------
 # # PCA and PLOTS
 # # ----------------------------------------------------------------------------
