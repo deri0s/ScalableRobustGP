@@ -197,14 +197,11 @@ class DirichletProcessSparseGaussianProcess():
 
     def get_z_indices(self, x, inducing_inputs):
         closest_values = np.zeros_like(inducing_inputs)
-        indices = np.zeros_like(x[:,0], dtype=int)
-
-        for i, val1 in enumerate([inducing_inputs]):
-            print(f'\nx: {np.shape(x[:,0])} val1: {np.shape(val1)} \n')
-            closest_idx = np.argmin(np.abs(x[:,0] - val1[i,0]))
-            closest_values[i,0] = x[closest_idx,0]
+        indices = np.zeros_like(x, dtype=int)
+        for i, val1 in enumerate(inducing_inputs):
+            closest_idx = np.argmin(np.abs(x - val1))
+            closest_values[i] = x[closest_idx]
             indices[i] = closest_idx
-
         unique_indices = np.unique(closest_values, return_index=True)[1]
         return indices[unique_indices]
         
@@ -454,9 +451,9 @@ class DirichletProcessSparseGaussianProcess():
         # get estimated hyperparameters
         if self.gp_model == 'Sparse':
             self._z_normalised = self.gp.covar_module.inducing_points.detach().numpy()
-            print(' the shape of the est inducing points: ',
+            print(' \n the shape of the est inducing points: ',
                   np.shape(self._z_normalised))
-            self._z_indices = self.get_z_indices(X0, self._z_normalised)
+            self._z_indices = self.get_z_indices(X0[:, 0], self._z_normalised[:, 0])
 
         # Return the unornalised values
         if self.normalise_y is True:

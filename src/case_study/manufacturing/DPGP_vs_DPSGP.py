@@ -58,8 +58,6 @@ date_time = date_time[start_train:end_test]
 y_raw = y_raw[start_train:end_test]
 y_rect = y0[start_train:end_test]
 
-print('N-train: ', len(X_train))
-
 """
 DPGP regression
 """
@@ -67,8 +65,6 @@ DPGP regression
 del X_df, y_df, dpm
 
 # Length scales
-# ls = [0.0612, 3.72, 200, 200, 200, 200, 4.35, 0.691, 200, 200]
-# ls = [7, 64, 7, 7.60, 10, 7, 7, 123, 76, 78]
 ls = 1e5*np.ones(10)
 
 # Kernels
@@ -120,10 +116,10 @@ gp.train()
 mus, stds = gp.predict(X_train)
 comp_time = time.time() - start_time
 
-print(f'DPSGP training time: {comp_time:.2f} seconds')
+print(f'\nDPSGP training time: {comp_time:.2f} seconds')
 
 # get inducing points indices
-_z = gp._z_indices
+_z_indices = gp._z_indices
 
 #-----------------------------------------------------------------------------
 # REGRESSION PLOT
@@ -144,70 +140,90 @@ ax.fill_between(date_time,
                 label='3$\sigma$')
 ax.plot(date_time, y_raw, color='grey', label='Raw')
 ax.plot(date_time, y_rect, color='blue', label='Filtered')
-ax.plot(date_time, mu, color="green", linewidth = 2.5, label="DPGP")
+# ax.plot(date_time, mu, color="green", linewidth = 2.5, label="DPGP")
 ax.plot(date_time, mus, color="red", linewidth = 2.5, label="DPSGP")
 plt.axvline(date_time[N_train-1], linestyle='--', linewidth=3,
             color='black')
-# ax.vlines(
-#     x=_z,
-#     ymin=y_train.min().item(),
-#     ymax=y_train.max().item(),
-#     alpha=0.3,
-#     linewidth=1.5,
-#     label="z*",
-#     color='orange'
-# )
+
+ax.vlines(
+    x=date_time[::10],
+    ymin=y_train.min().item(),
+    ymax=y_train.max().item(),
+    alpha=0.3,
+    linewidth=1.5,
+    ls='--',
+    label="z0",
+    color='grey'
+)
+dt0 = date_time[gp.indices[0]]
+ax.vlines(
+    # Sparse clean data
+    x=dt0[_z_indices],
+    ymin=y_train.min().item(),
+    ymax=y_train.max().item(),
+    alpha=0.3,
+    linewidth=1.5,
+    label="z*",
+    color='orange'
+)
+ax.set_xlabel(" Date-time", fontsize=14)
+ax.set_ylabel(" Fault density", fontsize=14)
+plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
+
+# ----------------------------------------------------------------------------
+# PCA and PLOTS
+# ----------------------------------------------------------------------------
+pca = PCA(n_components=2)
+pca.fit(X)
+Xt = pca.transform(X)
+
+# PCA on training data
+Xt_train = pca.transform(X_train)
+
+# PCA on clean data
+Xt_train_clean = pca.transform(X_train[gp.indices[0], :])
+
+# PCA on sparse clean data
+Xt_train_sparse_clean = pca.transform(Xt_train_clean[_z_indices, :])
+
+# PCA on test data
+Xt_test = pca.transform(X_test)
+    
+# Plot at each 1000 points
+fig, ax = plt.subplots()
+ax.plot(Xt[:, 0], Xt[:, 1], 'o', markersize=0.9, c='grey',
+        label='Available training data', alpha=0.9)
+ax.plot(Xt_train[:, 0], Xt_train[:, 1], 'o', markersize=8.9, c='orange',
+        label='Used Training data', alpha=0.6)
+ax.plot(Xt_train_sparse_clean[:, 0], Xt_train_sparse_clean[:, 1],
+        'o', markersize=8.9, c='green',
+        label='Sparse-clean', alpha=0.6)
+ax.set_xlim(np.min(Xt[:, 0]), np.max(np.max(Xt[:, 0])))
+ax.set_ylim(np.min(Xt[:, 0]), np.max(np.max(Xt[:, 1])))
+
+#-----------------------------------------------------------------------------
+# CLUSTERING PLOT
+#-----------------------------------------------------------------------------
+
+color_iter = ['lightgreen', 'orange','red', 'brown','black']
+
+# DP-GP
+enumerate_K = [i for i in range(dpgp.K_opt)]
+
+fig, ax = plt.subplots()
+# Increase the size of the axis numbers
+plt.rcdefaults()
+plt.rc('xtick', labelsize=14)
+plt.rc('ytick', labelsize=14)
+
+fig.autofmt_xdate()
+ax.set_title(" Clustering performance", fontsize=18)
+if dpgp.K_opt != 1:
+    for i, (k, c) in enumerate(zip(enumerate_K, color_iter)):
+        ax.plot(date_time[dpgp.indices[k]], y_raw[dpgp.indices[k]],
+                'o',color=c, markersize = 8, label='Noise Level '+str(k))
+ax.plot(date_time, mus, color="green", linewidth = 2, label=" DPGP")
 ax.set_xlabel(" Date-time", fontsize=14)
 ax.set_ylabel(" Fault density", fontsize=14)
 plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
 plt.show()
-# # ----------------------------------------------------------------------------
-# # PCA and PLOTS
-# # ----------------------------------------------------------------------------
-# pca = PCA(n_components=2)
-# pca.fit(X)
-# Xt = pca.transform(X)
-
-# # PCA on training data
-# Xt_train = pca.transform(X_train)
-
-# # PCA on test data
-# Xt_test = pca.transform(X_test)
-    
-# # Plot at each 1000 points
-# fig, ax = plt.subplots()
-# ax.plot(Xt[:, 0], Xt[:, 1], 'o', markersize=0.9, c='grey',
-#         label='Available training data', alpha=0.9)
-# ax.plot(Xt_train[:, 0], Xt_train[:, 1], 'o', markersize=8.9, c='orange',
-#         label='Used Training data', alpha=0.6)
-# ax.plot(Xt_test[:,0], Xt_test[:,1], '*', markersize=5.5,
-#         c='purple', label='test data', alpha=0.6)
-# ax.set_xlim(np.min(Xt[:, 0]), np.max(np.max(Xt[:, 0])))
-# ax.set_ylim(np.min(Xt[:, 0]), np.max(np.max(Xt[:, 1])))
-
-# #-----------------------------------------------------------------------------
-# # CLUSTERING PLOT
-# #-----------------------------------------------------------------------------
-
-# color_iter = ['lightgreen', 'orange','red', 'brown','black']
-
-# # DP-GP
-# enumerate_K = [i for i in range(dpgp.K_opt)]
-
-# fig, ax = plt.subplots()
-# # Increase the size of the axis numbers
-# plt.rcdefaults()
-# plt.rc('xtick', labelsize=14)
-# plt.rc('ytick', labelsize=14)
-
-# fig.autofmt_xdate()
-# ax.set_title(" Clustering performance", fontsize=18)
-# if dpgp.K_opt != 1:
-#     for i, (k, c) in enumerate(zip(enumerate_K, color_iter)):
-#         ax.plot(date_time[dpgp.indices[k]], y_raw[dpgp.indices[k]],
-#                 'o',color=c, markersize = 8, label='Noise Level '+str(k))
-# ax.plot(date_time, mu, color="green", linewidth = 2, label=" DPGP")
-# ax.set_xlabel(" Date-time", fontsize=14)
-# ax.set_ylabel(" Fault density", fontsize=14)
-# plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
-# plt.show()

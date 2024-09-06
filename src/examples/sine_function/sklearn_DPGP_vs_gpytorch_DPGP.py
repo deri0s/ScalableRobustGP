@@ -150,6 +150,8 @@ for i, (k, c) in enumerate(zip(enumerate_K, color_iter)):
 
 plt.plot(X_test, mu, linewidth=4, color='red', label='DPGP-torch')
 plt.plot(X_test, mu, linewidth=4, color='blue', label='DPGP-sklearn')
+
+
 plt.xlabel('x', fontsize=16)
 plt.ylabel('f(x)', fontsize=16)
 plt.legend(prop={"size":20})
