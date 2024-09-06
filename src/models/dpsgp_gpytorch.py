@@ -451,8 +451,6 @@ class DirichletProcessSparseGaussianProcess():
         # get estimated hyperparameters
         if self.gp_model == 'Sparse':
             self._z_normalised = self.gp.covar_module.inducing_points.detach().numpy()
-            print(' \n the shape of the est inducing points: ',
-                  np.shape(self._z_normalised))
             self._z_indices = self.get_z_indices(X0[:, 0], self._z_normalised[:, 0])
 
         # Return the unornalised values

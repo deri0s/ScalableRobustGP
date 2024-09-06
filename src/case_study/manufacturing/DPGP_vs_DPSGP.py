@@ -80,7 +80,7 @@ dpgp.train(pseudo_sparse=True)
 mu, std = dpgp.predict(X_train)
 comp_time = time.time() - start_time
 
-print(f'DPGP training time: {comp_time:.2f} seconds')
+print(f'\nDPGP training time: {comp_time:.2f} seconds')
 
 """
 DPSGP
@@ -116,7 +116,7 @@ gp.train()
 mus, stds = gp.predict(X_train)
 comp_time = time.time() - start_time
 
-print(f'\nDPSGP training time: {comp_time:.2f} seconds')
+print(f'DPSGP training time: {comp_time:.2f} seconds')
 
 # get inducing points indices
 _z_indices = gp._z_indices
@@ -147,7 +147,7 @@ plt.axvline(date_time[N_train-1], linestyle='--', linewidth=3,
 
 ax.vlines(
     x=date_time[::10],
-    ymin=y_train.min().item(),
+    ymin=-0.5,
     ymax=y_train.max().item(),
     alpha=0.3,
     linewidth=1.5,
@@ -159,7 +159,7 @@ dt0 = date_time[gp.indices[0]]
 ax.vlines(
     # Sparse clean data
     x=dt0[_z_indices],
-    ymin=y_train.min().item(),
+    ymin=-0.5,
     ymax=y_train.max().item(),
     alpha=0.3,
     linewidth=1.5,
@@ -181,10 +181,12 @@ Xt = pca.transform(X)
 Xt_train = pca.transform(X_train)
 
 # PCA on clean data
-Xt_train_clean = pca.transform(X_train[gp.indices[0], :])
+X0_train = X_train[gp.indices[0], :]
+Xt_train_clean = pca.transform(X0_train)
 
 # PCA on sparse clean data
-Xt_train_sparse_clean = pca.transform(Xt_train_clean[_z_indices, :])
+X0_sparse = X0_train[_z_indices]
+Xt_train_sparse_clean = pca.transform(X0_sparse)
 
 # PCA on test data
 Xt_test = pca.transform(X_test)
@@ -200,6 +202,7 @@ ax.plot(Xt_train_sparse_clean[:, 0], Xt_train_sparse_clean[:, 1],
         label='Sparse-clean', alpha=0.6)
 ax.set_xlim(np.min(Xt[:, 0]), np.max(np.max(Xt[:, 0])))
 ax.set_ylim(np.min(Xt[:, 0]), np.max(np.max(Xt[:, 1])))
+plt.legend(loc=0, prop={"size":16}, facecolor="white", framealpha=1.0)
 
 #-----------------------------------------------------------------------------
 # CLUSTERING PLOT

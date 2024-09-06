@@ -31,6 +31,7 @@ class DirichletProcessGaussianProcess(GPR):
                 self.D = np.shape(self.X)[1]    # Dimension of inputs
                 self.N_iter = N_iter            # Max number of iterations (DPGP)
                 self.DP_max_iter = DP_max_iter  # Max number of iterations (DP)
+                self.print_conv = False
                 self.plot_conv = plot_conv
                 self.plot_sol = plot_sol
                 
@@ -329,8 +330,9 @@ class DirichletProcessGaussianProcess(GPR):
             # Compute log-likelihood(s):
             # Model convergence is controlled with the standard GP likelihood
             lnP[i+1] = self.log_marginal_likelihood()
-            print('Training...\n Iteration: ', i, ' tolerance: ', tolerance,
-                  ' calculated(GP): ', abs(lnP[i+1] - lnP[i]), '\n')
+            if self.print_conv:
+                print('Training...\n Iteration: ', i, ' tolerance: ', tolerance,
+                    ' calculated(GP): ', abs(lnP[i+1] - lnP[i]), '\n')
             
             if self.plot_sol:
                 self.plot_solution(K, index, mu)
