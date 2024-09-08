@@ -2,8 +2,7 @@ import pandas as pd
 import numpy as np
 import time
 from matplotlib import pyplot as plt
-from sklearn.gaussian_process.kernels import RBF, WhiteKernel
-from models.dpgp import DirichletProcessGaussianProcess as DPGP
+from sklearn.preprocessing import MinMaxScaler as minmax
 from case_study.manufacturing.data_and_preprocessing.raw import data_processing_methods as dpm
 from sklearn.decomposition import PCA
 
@@ -14,7 +13,7 @@ NSG data
 file = 'data_and_preprocessing/processed/NSG_processed_data.xlsx'
 
 # Training df
-X_df = pd.read_excel(file, sheet_name='X_stand')
+X_df = pd.read_excel(file, sheet_name='X_norm')
 y_df = pd.read_excel(file, sheet_name='y')
 y_raw_df = pd.read_excel(file, sheet_name='y_raw')
 t_df = pd.read_excel(file, sheet_name='timelags')
@@ -55,29 +54,17 @@ date_time = date_time[start_train:end_test]
 y_raw = y_raw[start_train:end_test]
 y_rect = y0[start_train:end_test]
 
-"""
-DPGP regression
-"""
 # Save memory
 del X_df, y_df, dpm
 
-# Length scales
-ls = 1e5*np.ones(10)
+"""
+Normalise outputs
+See if normalising the outputs provides better predictions compared
+to standardising them
+"""
 
-# Kernels
-se = 1**2 * RBF(length_scale=ls, length_scale_bounds=(0.25, 1e5))
-wn = WhiteKernel(noise_level=0.61**2, noise_level_bounds=(1e-5, 1))
-
-kernel = se + wn
-
-start_time = time.time()
-dpgp = DPGP(X_train, y_train, init_K=7, kernel=kernel, DP_max_iter=300)
-dpgp.train(pseudo_sparse=True)
-
-mu, std = dpgp.predict(X_train)
-comp_time = time.time() - start_time
-
-print(f'\nDPGP training time: {comp_time:.2f} seconds')
+scaler = minmax(feature_range=(0,1))
+y_norm = scaler.fit_transform(np.vstack(y_train))
 
 """
 DPSGP
@@ -113,6 +100,10 @@ gp.train()
 mus, stds = gp.predict(X_train)
 comp_time = time.time() - start_time
 
+# unormalised predictions
+# mu = scaler.fit_transform(mus)
+# std = scaler.fit_transform(stds)
+
 print(f'DPSGP training time: {comp_time:.2f} seconds')
 
 # get inducing points indices
@@ -137,7 +128,6 @@ ax.fill_between(date_time,
                 label='3$\\sigma$')
 ax.plot(date_time, y_raw, color='grey', label='Raw')
 ax.plot(date_time, y_rect, color='blue', label='Filtered')
-ax.plot(date_time, mu, color="green", linewidth = 2.5, label="DPGP")
 ax.plot(date_time, mus, color="red", linewidth = 2.5, label="DPSGP")
 plt.axvline(date_time[N_train-1], linestyle='--', linewidth=3,
             color='black')
