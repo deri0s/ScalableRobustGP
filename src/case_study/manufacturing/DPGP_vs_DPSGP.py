@@ -4,20 +4,20 @@ import time
 from matplotlib import pyplot as plt
 from sklearn.gaussian_process.kernels import RBF, WhiteKernel
 from models.dpgp import DirichletProcessGaussianProcess as DPGP
-from case_study.manufacturing.pre_processing import data_processing_methods as dpm
+from case_study.manufacturing.data_and_preprocessing.raw import data_processing_methods as dpm
 from sklearn.decomposition import PCA
 
 """
 NSG data
 """
 # NSG post processes data location
-file = 'data/processed/NSG_data.xlsx'
+file = 'data_and_preprocessing/processed/NSG_processed_data.xlsx'
 
 # Training df
-X_df = pd.read_excel(file, sheet_name='X_training_stand')
-y_df = pd.read_excel(file, sheet_name='y_training')
-y_raw_df = pd.read_excel(file, sheet_name='y_raw_training')
-t_df = pd.read_excel(file, sheet_name='time')
+X_df = pd.read_excel(file, sheet_name='X_stand')
+y_df = pd.read_excel(file, sheet_name='y')
+y_raw_df = pd.read_excel(file, sheet_name='y_raw')
+t_df = pd.read_excel(file, sheet_name='timelags')
 
 # Pre-Process training data
 X, y0, N0, D, max_lag, time_lags = dpm.align_arrays(X_df, y_df, t_df)
@@ -27,14 +27,11 @@ zeros = y_raw_df.loc[y_raw_df['raw_furnace_faults'] <= 1e-1]
 y_raw_df['raw_furnace_faults'][zeros.index] = None
 y_raw_df.interpolate(inplace=True)
 
-# Process raw targets
-# Just removes the first max_lag points from the date_time array.
+# Remove the first max_lag points from the date_time array.
 y_raw = dpm.adjust_time_lag(y_raw_df['raw_furnace_faults'].values,
                             shift=0,
                             to_remove=max_lag)
 
-# Extract corresponding time stamps. Note this essentially just
-# removes the first max_lag points from the date_time array.
 date_time = dpm.adjust_time_lag(y_df['Time stamp'].values,
                                 shift=0,
                                 to_remove=max_lag)
@@ -137,10 +134,10 @@ print('date-time: ', np.shape(date_time))
 ax.fill_between(date_time,
                 mus + 3*stds, mus - 3*stds,
                 alpha=0.5, color='lightcoral',
-                label='3$\sigma$')
+                label='3$\\sigma$')
 ax.plot(date_time, y_raw, color='grey', label='Raw')
 ax.plot(date_time, y_rect, color='blue', label='Filtered')
-# ax.plot(date_time, mu, color="green", linewidth = 2.5, label="DPGP")
+ax.plot(date_time, mu, color="green", linewidth = 2.5, label="DPGP")
 ax.plot(date_time, mus, color="red", linewidth = 2.5, label="DPSGP")
 plt.axvline(date_time[N_train-1], linestyle='--', linewidth=3,
             color='black')
