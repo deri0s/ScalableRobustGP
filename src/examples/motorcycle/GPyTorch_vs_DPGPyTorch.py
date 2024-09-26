@@ -113,6 +113,33 @@ with torch.no_grad(), gpytorch.settings.fast_pred_var():
 mu = np.hstack(output_scaler.inverse_transform(np.vstack(mu_norm)))
 std = np.hstack(output_scaler.inverse_transform(np.vstack(std_norm)))
 
+"""
+DPGP-torch
+"""
+from gpytorch.means import ConstantMean
+from models.dpsgp_gpytorch import DirichletProcessSparseGaussianProcess as DPSGP
+
+# Define the kernel
+rbf_kernel = RBFKernel()
+rbf_kernel.lengthscale = 0.9
+rbf_kernel.lengthscale_constraint = gpytorch.constraints.Interval(0.07, 2.9)
+
+scale_kernel = ScaleKernel(rbf_kernel)
+scale_kernel.outputscale = 1.0
+scale_kernel.outputscale_constraint = gpytorch.constraints.Interval(0.9, 1.1)
+
+covar_module = scale_kernel
+
+dpgp = DPSGP(X, np.hstack(Y_org), init_K=7,
+            gp_model='Standard',
+            prior_mean=ConstantMean(), kernel=covar_module,
+            noise_var = 0.005,
+            floating_point=floating_point,
+            normalise_y=True,
+            print_conv=False, plot_conv=True, plot_sol=False)
+dpgp.train()
+mus, stds = dpgp.predict(X)
+
 #-----------------------------------------------------------------------------
 # REGRESSION PLOT
 #-----------------------------------------------------------------------------
@@ -121,10 +148,13 @@ plt.figure()
 plt.fill_between(x, mu_var + 3*std_var, mu_var - 3*std_var,
                  alpha=0.5,color='pink',label='3$\\sigma$ (VHGP)')
 plt.fill_between(x, mu + 3*std, mu - 3*std,
+                 alpha=0.4,color='lightblue',label='3$\\sigma$ (GP-torch)')
+plt.fill_between(x, mus + 3*stds, mus - 3*stds,
                  alpha=0.4,color='limegreen',label='3$\\sigma$ (DPGP-torch)')
 plt.plot(X_org, Y_org, 'o', color='black')
-plt.plot(x, mu, 'blue', label='DPGP-torch')
 plt.plot(x, mu_var, 'red', label='VHGP')
+plt.plot(x, mu, 'blue', label='GP-torch')
+plt.plot(x, mus, 'green', label='DPGP')
 plt.xlabel('Time (s)')
 plt.ylabel('Acceleration')
 plt.legend(loc=4, prop={"size":20})

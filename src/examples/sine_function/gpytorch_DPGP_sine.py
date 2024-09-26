@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 
 """
 Best results
-- Standarise inputs: MinMaxScaler [0,1]
+- Normalise inputs: MinMaxScaler [0,1]
 - Standardise outputs: StandardScaler
 - torch.float32 or torch.float64 (not big difference)
         ^                ^
@@ -54,7 +54,7 @@ Sparse GP with InducingPointKernel
 """
 covar_module = ScaleKernel(RBF(lengthscale=0.9))
 likelihood = GaussianLikelihood()
-print('\n',type(X_norm))
+
 start_time = time.time()
 gp = DPSGP_gpytorch(X_norm, y, init_K=8,
                     gp_model='Standard',
@@ -79,6 +79,7 @@ from sklearn.metrics import mean_squared_error
 
 print(f"\nComputational time: {comp_time:.2f} seconds")
 print("\nMean Squared Error (DPSGP)   : ", mean_squared_error(mu, F))
+
 #-----------------------------------------------------------------------------
 # REGRESSION PLOT
 #-----------------------------------------------------------------------------
