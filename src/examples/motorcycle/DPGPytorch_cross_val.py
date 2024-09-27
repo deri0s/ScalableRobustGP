@@ -50,127 +50,91 @@ elif preprocess == "mm":
 else:
     print('Not a valid preprocessing method')
 
-x_norm = train_scaler.fit_transform(X_org.reshape(-1, 1))
-y_norm = output_scaler.fit_transform(Y_org.reshape(-1, 1))
+X = train_scaler.fit_transform(X_org.reshape(-1, 1))
 
 # Convert data to torch tensors
 floating_point = torch.float64
 
-X = torch.tensor(x_norm, dtype=floating_point)
-Y = torch.tensor(np.hstack(y_norm), dtype=floating_point)
-
-# Define the kernel
-rbf_kernel = RBFKernel()
-rbf_kernel.lengthscale = 0.9
-rbf_kernel.lengthscale_constraint = gpytorch.constraints.Interval(1e-5, 10)
-
-scale_kernel = ScaleKernel(rbf_kernel)
-scale_kernel.outputscale = 1.0
-scale_kernel.outputscale_constraint = gpytorch.constraints.Interval(0.9, 1.1)
-
-covar_module = scale_kernel
-
-dpgp = DPSGP(X, np.hstack(Y_org), init_K=7,
-             gp_model='Standard',
-             prior_mean=ConstantMean(), kernel=covar_module,
-             noise_var=0.005,
-             floating_point=floating_point,
-             normalise_y=True,
-             print_conv=False, plot_conv=True, plot_sol=False)
-
-# Create a class that sklearn RandomizedSearchCV can use
-class DPGP_cv:
-    def __init__(self, model):
-        self.model = model
-
-    def fit(self, X, Y):
-        self.model.train()
-
-    def predict(self, X):
-        mus, stds = self.model.predict(X)
-        return mus
-
-    def get_params(self, deep=True):
-        return {"model": self.model}
-
-    def set_params(self, **params):
-        for key, value in params.items():
-            setattr(self, key, value)
-        return self
-
 # Cross-validation
-param_dist = {"ls": np.linspace(1e-5, 1, 10),
-              "std": np.linspace(1e-5, 1, 10)}
+N_ls = 10
+N_std= 10
+param_dist = {"ls": np.linspace(1e-5, 3, N_ls),
+              "std": np.linspace(1e-4, 0.05, N_std)}
 
-dpgp_cv = DPGP_cv(dpgp)
+# Perform randomized search cross-validation
+best_score = float('inf')
+best_params = None
+scores = np.zeros((N_ls, N_std))
 
-randomized_search = RandomizedSearchCV(
-    estimator=dpgp_cv,
-    param_distributions=param_dist,
-    cv=5,
-    scoring='neg_mean_squared_error',
-    n_jobs=-1
-)
+for i, ls in enumerate(param_dist['ls']):
+    for j, std in enumerate(param_dist['std']):
+        # Define the kernel
+        rbf_kernel = RBFKernel()
+        rbf_kernel.lengthscale = ls
+        rbf_kernel.lengthscale_constraint = gpytorch.constraints.Interval(1e-5, 10)
 
-randomized_search.fit(X, np.hstack(Y_org))
+        scale_kernel = ScaleKernel(rbf_kernel)
+        scale_kernel.outputscale = 1.0
+        scale_kernel.outputscale_constraint = gpytorch.constraints.Interval(0.9, 1.1)
 
-# print search
-cv_results = randomized_search.cv_results_
+        covar_module = scale_kernel
 
-# Print the parameter combinations and their scores
-for mean_score, params in zip(cv_results['mean_test_score'], cv_results['params']):
-    print(f"Score: {mean_score}, Parameters: {params}")
+        dpgp = DPSGP(X, np.hstack(Y_org), init_K=7,
+                    gp_model='Standard',
+                    prior_mean=ConstantMean(), kernel=covar_module,
+                    noise_var=std,
+                    floating_point=floating_point,
+                    normalise_y=True,
+                    print_conv=False, plot_conv=False, plot_sol=False)
+        dpgp.train()
+        mu, pred_std = dpgp.predict(X)
 
+        score = mean_squared_error(mu_var, mu)
 
-# Best model
-best_model = randomized_search.best_estimator_
+        scores[i, j] = round(score, 2)
 
-# Access the hyperparameters
-length_scale = best_model.model.kernel.base_kernel.lengthscale.item()
-output_scale = best_model.model.kernel.outputscale.item()
-noise_var = best_model.model.likelihood.noise.item()
+        if score < best_score:
+            best_score = score
+            best_params = {'length_scale': ls,
+                           'noise_variance': std}
+            mus = np.copy(mu)
 
-# Format the hyperparameters into an equation-like string
-kernel_eq = f"{output_scale:.2f} * SE(ls={length_scale:.2f}) + {noise_var:.2f}^2"
+print(f"Best parameters: {best_params}")
+print(f"Best score: {best_score}")
 
-print("\nTuned hyperparameters: \n")
-print(f"\nKernel Equation: {kernel_eq}")
+param_dist['score(MSE)'] = scores
 
-mus = best_model.predict(X)
-mse = mean_squared_error(mu_var, mus)
-print(f"\nMean Squared Error: {mse}")
+import pandas as pd
+cv_df = pd.DataFrame(scores)
+print('MSE\n', cv_df.head(5))
+print('ls: ', param_dist['ls'])
+print('std: ', param_dist['std'])
 
 #-----------------------------------------------------------------------------
 # CROSS-VALIDATION 
 #-----------------------------------------------------------------------------
 
-results = randomized_search.cv_results_
-scores = results['mean_test_score']
-params = results['params']
-
-# Extract parameter values
-ls_values = [param['ls'] for param in params]
-std_values = [param['std'] for param in params]
-
 # Plot the scores
-plt.figure()
-plt.scatter(ls_values, scores, label='Length Scale')
-plt.scatter(std_values, scores, label='Standard Deviation')
-plt.xlabel('Hyperparameter Value')
-plt.ylabel('Score')
-plt.legend()
+fig, ax = plt.subplots()
+plt.imshow(scores, label='Grid search')
+for (j,i),label in np.ndenumerate(scores):
+    ax.text(i,j,label,ha='center',va='center',
+            bbox=dict(facecolor='white', alpha=0.9))
+plt.colorbar()
+plt.xlabel('Length scale')
+plt.ylabel('Standard Deviation')
 
-#-----------------------------------------------------------------------------
-# REGRESSION PLOT
-#-----------------------------------------------------------------------------
-plt.figure()
-plt.fill_between(x, mu_var + 3*std_var, mu_var - 3*std_var,
-                 alpha=0.5,color='pink',label='3$\\sigma$ (VHGP)')
-plt.plot(X_org, Y_org, 'o', color='black')
-plt.plot(x, mu_var, 'red', linewidth=3, label='VHGP')
-plt.plot(x, mus, 'green', linewidth=3, label='DPGP')
-plt.xlabel('Time (s)')
-plt.ylabel('Acceleration')
-plt.legend(loc=4, prop={"size":20})
+# #-----------------------------------------------------------------------------
+# # REGRESSION PLOT
+# #-----------------------------------------------------------------------------
+# plt.figure()
+# plt.fill_between(x, mu_var + 3*std_var, mu_var - 3*std_var,
+#                  alpha=0.5,color='pink',label='3$\\sigma$ (VHGP)')
+# plt.plot(X_org, Y_org, 'o', color='black')
+# plt.plot(x, mu_var, 'red', linewidth=3, label='VHGP')
+# plt.plot(x, mu, 'green', linewidth=3, label='DPGP')
+# plt.xlabel('Time (s)')
+# plt.ylabel('Acceleration')
+# plt.legend(loc=4, prop={"size":20})
 
 plt.show()

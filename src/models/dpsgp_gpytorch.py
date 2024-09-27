@@ -51,7 +51,11 @@ class DirichletProcessSparseGaussianProcess():
                 """
                 self.floating_point = floating_point
                 self.X_org = np.vstack(X)       # Required for DP clustering
-                self.X = torch.tensor(X, dtype=self.floating_point)
+                if torch.is_tensor(X):
+                    self.X = X
+                else:
+                    self.X = torch.tensor(X, dtype=self.floating_point)
+
                 self.Y = Y                      # Targets never vstacked
                 self.N = len(Y)                 # No. training points
                 self.D = self.X.dim()           # No. Dimensions

@@ -128,7 +128,7 @@ from models.dpsgp_gpytorch import DirichletProcessSparseGaussianProcess as DPSGP
 
 # Define the kernel
 rbf_kernel = RBFKernel()
-rbf_kernel.lengthscale = 0.9
+rbf_kernel.lengthscale = 0.55
 rbf_kernel.lengthscale_constraint = gpytorch.constraints.Interval(1e-5, 10)
 
 scale_kernel = ScaleKernel(rbf_kernel)
@@ -140,7 +140,7 @@ covar_module = scale_kernel
 dpgp = DPSGP(X, np.hstack(Y_org), init_K=7,
             gp_model='Standard',
             prior_mean=ConstantMean(), kernel=covar_module,
-            noise_var = 0.05,
+            noise_var = 0.111,
             floating_point=floating_point,
             normalise_y=True,
             print_conv=False, plot_conv=True, plot_sol=False)
