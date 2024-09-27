@@ -38,14 +38,13 @@ Best configuration:
 """
 
 if preprocess == "ss":
-    train_scaler = minmax()
-    output_scaler = ss()
+    train_scaler = ss()
 elif preprocess == "mm":
     train_scaler = minmax()
-    output_scaler = minmax()
 else:
     print('Not a valid prerpocesing method')
 
+output_scaler = ss()
 x_norm = train_scaler.fit_transform(X_org.reshape(-1,1))
 y_norm = output_scaler.fit_transform(Y_org.reshape(-1,1))
 
@@ -122,13 +121,15 @@ std = np.hstack(output_scaler.inverse_transform(np.vstack(std_norm)))
 
 """
 DPGP-torch
+
+Initial hyperparamters estimated in the DPGP-torch_cross_val script
 """
 from gpytorch.means import ConstantMean
 from models.dpsgp_gpytorch import DirichletProcessSparseGaussianProcess as DPSGP
 
 # Define the kernel
 rbf_kernel = RBFKernel()
-rbf_kernel.lengthscale = 0.55
+rbf_kernel.lengthscale = 1.33
 rbf_kernel.lengthscale_constraint = gpytorch.constraints.Interval(1e-5, 10)
 
 scale_kernel = ScaleKernel(rbf_kernel)
@@ -140,7 +141,7 @@ covar_module = scale_kernel
 dpgp = DPSGP(X, np.hstack(Y_org), init_K=7,
             gp_model='Standard',
             prior_mean=ConstantMean(), kernel=covar_module,
-            noise_var = 0.111,
+            noise_var = 0.011155,
             floating_point=floating_point,
             normalise_y=True,
             print_conv=False, plot_conv=True, plot_sol=False)
@@ -183,19 +184,20 @@ plt.legend(loc=4, prop={"size":20})
 # ----------------------------------------------------------------------------
 # CLUSTERING
 # ----------------------------------------------------------------------------
+print('\nEstimated K: ', dpgp.K_opt)
 
-# color_iter = ['lightgreen', 'red', 'black']
-# nl = ['Noise level 0', 'Noise level 1']
-# enumerate_K = [i for i in range(dpgp.K_opt)]
+color_iter = ['lightgreen', 'red', 'black']
+nl = ['Noise level 0', 'Noise level 1']
+enumerate_K = [i for i in range(dpgp.K_opt)]
 
-# plt.figure()
-# if dpgp.K_opt != 1:
-#     for i, (k, c) in enumerate(zip(enumerate_K, color_iter)):
-#         plt.plot(X_org[dpgp.indices[k]], Y_org[dpgp.indices[k]], 'o',
-#                   color=c, markersize = 8, label = nl[k])
-# plt.plot(x, mus, color="green", linewidth = 4, label="DPGP-torch")
-# plt.xlabel('Time (s)', fontsize=16)
-# plt.ylabel('Acceleration', fontsize=16)
-# plt.legend(loc=0, prop={"size":20})
+plt.figure()
+if dpgp.K_opt != 1:
+    for i, (k, c) in enumerate(zip(enumerate_K, color_iter)):
+        plt.plot(X_org[dpgp.indices[k]], Y_org[dpgp.indices[k]], 'o',
+                  color=c, markersize = 8, label = nl[k])
+plt.plot(x, mus, color="green", linewidth = 4, label="DPGP-torch")
+plt.xlabel('Time (s)', fontsize=16)
+plt.ylabel('Acceleration', fontsize=16)
+plt.legend(loc=0, prop={"size":20})
 
 plt.show()

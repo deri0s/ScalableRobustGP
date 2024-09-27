@@ -42,14 +42,13 @@ mu_var = mvhgp['ym']
 preprocess = "ss"
 
 if preprocess == "ss":
-    train_scaler = minmax()
-    output_scaler = ss()
+    train_scaler = ss()
 elif preprocess == "mm":
     train_scaler = minmax()
-    output_scaler = minmax()
 else:
     print('Not a valid preprocessing method')
 
+output_scaler = ss()
 X = train_scaler.fit_transform(X_org.reshape(-1, 1))
 
 # Convert data to torch tensors
@@ -58,8 +57,8 @@ floating_point = torch.float64
 # Cross-validation
 N_ls = 10
 N_std= 10
-param_dist = {"ls": np.linspace(1e-5, 3, N_ls),
-              "std": np.linspace(1e-4, 0.05, N_std)}
+param_dist = {"ls": np.linspace(1e-5, 2, N_ls),
+              "std": np.linspace(1e-3, 0.02, N_std)}
 
 # Perform randomized search cross-validation
 best_score = float('inf')
@@ -121,20 +120,7 @@ for (j,i),label in np.ndenumerate(scores):
     ax.text(i,j,label,ha='center',va='center',
             bbox=dict(facecolor='white', alpha=0.9))
 plt.colorbar()
-plt.xlabel('Length scale')
-plt.ylabel('Standard Deviation')
-
-# #-----------------------------------------------------------------------------
-# # REGRESSION PLOT
-# #-----------------------------------------------------------------------------
-# plt.figure()
-# plt.fill_between(x, mu_var + 3*std_var, mu_var - 3*std_var,
-#                  alpha=0.5,color='pink',label='3$\\sigma$ (VHGP)')
-# plt.plot(X_org, Y_org, 'o', color='black')
-# plt.plot(x, mu_var, 'red', linewidth=3, label='VHGP')
-# plt.plot(x, mu, 'green', linewidth=3, label='DPGP')
-# plt.xlabel('Time (s)')
-# plt.ylabel('Acceleration')
-# plt.legend(loc=4, prop={"size":20})
+plt.xlabel('Standard Deviation')
+plt.ylabel('Length scale')
 
 plt.show()
