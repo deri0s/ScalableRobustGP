@@ -294,7 +294,8 @@ class DirichletProcessSparseGaussianProcess():
         X_test:     Normalised features at test locations
         """
 
-        X_test = torch.tensor(X_test, dtype=self.floating_point)
+        if not torch.is_tensor(X_test):
+            X_test = torch.tensor(X_test, dtype=self.floating_point)
 
         self.gp.eval()
         self.likelihood.eval()
@@ -303,10 +304,6 @@ class DirichletProcessSparseGaussianProcess():
             # Dont vstack
             mu_norm = observed_pred.mean.numpy()
             std_norm = observed_pred.stddev.numpy()
-            # pred_mean = observed_pred.mean.numpy()
-            # pred_var = observed_pred.variance.numpy()
-            # mu_norm = pred_mean.numpy()
-            # var_norm = pred_var.numpy()
 
         # Return the un-standardised calculations if required
         if self.normalise_y is True:
