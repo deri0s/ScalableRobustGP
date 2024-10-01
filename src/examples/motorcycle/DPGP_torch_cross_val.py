@@ -5,10 +5,8 @@ import scipy.io as sio
 import mat73
 from sklearn.preprocessing import MinMaxScaler as minmax
 from sklearn.preprocessing import StandardScaler as ss
-from sklearn.model_selection import RandomizedSearchCV
 from sklearn.metrics import mean_squared_error
 import gpytorch
-from gpytorch.models import ExactGP
 from gpytorch.kernels import RBFKernel, ScaleKernel
 from gpytorch.means import ConstantMean
 from models.dpsgp_gpytorch import DirichletProcessSparseGaussianProcess as DPSGP

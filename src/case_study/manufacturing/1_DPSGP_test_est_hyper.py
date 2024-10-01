@@ -38,24 +38,30 @@ date_time = dpm.adjust_time_lag(y_df['Time stamp'].values,
 # Train and test data
 N, D = np.shape(X)
 start_train = y_df[y_df['Time stamp'] == '2020-08-16 00:00:00'].index[0]
-end_train = y_df[y_df['Time stamp'] == '2020-08-29 00:00:00'].index[0]
+end_train1 = y_df[y_df['Time stamp'] == '2020-08-23 00:00:00'].index[0]
 model_N = 1
 
-step = int(end_train - start_train)
-end_train = start_train + step
+step1 = int(end_train1 - start_train)
+end_train = start_train + step1
 
-X_train, y_train = X[start_train:end_train], y_raw[start_train:end_train]
-N_train = len(y_train)
+X_train1, y_train1 = X[start_train:end_train], y_raw[start_train:end_train]
+N_train = len(y_train1)
 
-end_test = end_train + 242
+start_train2 = end_train + 150
+end_train2 = start_train2 + 282
+
+X_train2, y_train2 = X[start_train2:end_train2], y_raw[start_train2:end_train2]
+
+# concatenate
+X_train = np.concatenate((X_train1, X_train2))
+y_train = np.concatenate((y_train1, y_train2))
+
+end_test = end_train2
 X_test, y_test = X[start_train:end_test], y_raw[start_train:end_test]
 
 date_time = date_time[start_train:end_test]
 y_raw = y_raw[start_train:end_test]
 y_rect = y0[start_train:end_test]
-
-# Save memory
-del X_df, y_df, dpm
 
 """
 DPSGP
@@ -74,7 +80,7 @@ inducing_points = X_temp[::10, :]
 likelihood = GaussianLikelihood()
 
 se = ScaleKernel(RBF(ard_num_dims=X_train.shape[-1],
-                     lengthscale=1.1777))
+                     lengthscale=1e-5))
 covar_module = InducingPointKernel(se,
                                    inducing_points=inducing_points,
                                    likelihood=likelihood)
@@ -83,7 +89,7 @@ start_time = time.time()
 gp = DPSGP(X_train, y_train, init_K=7,
            gp_model='Sparse',
            prior_mean=ConstantMean(), kernel=covar_module,
-           noise_var = 0.05,
+           noise_var = 0.023,
            floating_point=floating_point,
            normalise_y=True,
            DP_max_iter=400,
@@ -96,6 +102,12 @@ print(f'DPSGP training time: {comp_time:.2f} seconds')
 
 # get inducing points indices
 _z_indices = gp._z_indices
+
+# save predictions to use it in another scipt as the `true` fault_density
+d = {"date_time": date_time, "mu_val": mus}
+
+df = pd.DataFrame(d)
+df.to_csv("validation_data.csv")
 
 #-----------------------------------------------------------------------------
 # REGRESSION PLOT
@@ -117,6 +129,8 @@ ax.plot(date_time, y_raw, color='grey', label='Raw')
 ax.plot(date_time, y_rect, color='blue', label='Filtered')
 ax.plot(date_time, mus, color="red", linewidth = 2.5, label="DPSGP")
 plt.axvline(date_time[N_train-1], linestyle='--', linewidth=3,
+            color='black')
+plt.axvline(date_time[N_train+150-1], linestyle='--', linewidth=3,
             color='black')
 
 ax.vlines(
