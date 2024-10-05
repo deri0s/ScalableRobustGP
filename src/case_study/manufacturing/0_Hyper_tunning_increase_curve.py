@@ -87,7 +87,7 @@ likelihood = GaussianLikelihood()
 N_ls = 10
 N_std= 10
 param_dist = {"ls": np.linspace(1e-5, 3, N_ls),
-              "std": np.linspace(1e-3, 0.1, N_std)}
+              "std": np.linspace(1e-3, 0.025, N_std)}
 
 # Perform randomized search cross-validation
 best_score = float('inf')
