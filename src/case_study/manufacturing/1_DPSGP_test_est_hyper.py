@@ -106,10 +106,10 @@ print(f'DPSGP training time: {comp_time:.2f} seconds')
 _z_indices = sgp._z_indices
 
 # save predictions to use it in another scipt as the `true` fault_density
-d = {"date_time": date_time, "mu_val": mus}
+# d = {"date_time": date_time, "mu_val": mus}
 
-df = pd.DataFrame(d)
-df.to_csv("validation_data.csv")
+# df = pd.DataFrame(d)
+# df.to_csv("validation_data.csv")
 
 """
 GP extrapolation
