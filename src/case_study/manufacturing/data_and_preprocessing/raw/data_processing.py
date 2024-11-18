@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import datetime as dt
 from matplotlib import pyplot as plt
-import data_processing_methods as dpm
+from case_study.manufacturing.data_and_preprocessing.raw import data_processing_methods as dpm
 
 """
 Script for processing input and output data, using methods from
@@ -535,7 +535,7 @@ T_df = pd.DataFrame(T_d, index=np.array([1]))
 M_df = pd.DataFrame(M_d, dtype=str, index=np.array([1]))
 
 # Define an Excel writer object and the target file
-writer = pd.ExcelWriter(generated_file_name)
+writer = pd.ExcelWriter('prueba_post_processing.xlsx')
 
 # Save to spreadsheet
 X_df.to_excel(writer, sheet_name='input_data', index=False)

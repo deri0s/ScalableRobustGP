@@ -10,7 +10,7 @@ from sklearn.decomposition import PCA
 NSG data
 """
 # NSG post processes data location
-file = 'data_and_preprocessing/processed/NSG_processed_data.xlsx'
+file = 'data_and_preprocessing/processed/Spearman_corr_timelags.xlsx'
 
 # Training df
 X_df = pd.read_excel(file, sheet_name='X_stand')
@@ -18,7 +18,7 @@ y_df = pd.read_excel(file, sheet_name='y')
 y_raw_df = pd.read_excel(file, sheet_name='y_raw')
 t_df = pd.read_excel(file, sheet_name='timelags')
 
-# Pre-Process training data
+# Assign lags to the training data
 X, y0, N0, D, max_lag, time_lags = dpm.align_arrays(X_df, y_df, t_df)
 
 # Replace zero values with interpolation
@@ -38,19 +38,30 @@ date_time = dpm.adjust_time_lag(y_df['Time stamp'].values,
 # Train and test data
 N, D = np.shape(X)
 start_train = y_df[y_df['Time stamp'] == '2020-08-16 00:00:00'].index[0]
-end_train = y_df[y_df['Time stamp'] == '2020-08-27 23:00:00'].index[0]
+end_train1 = y_df[y_df['Time stamp'] == '2020-08-23 23:00:00'].index[0]
 model_N = 1
 
-X_train, y_train = X[start_train:end_train], y_raw[start_train:end_train]
-N_train = len(X_train)
+step1 = int(end_train1 - start_train)
+end_train = start_train + step1
 
-end_test = end_train + 200
-X_test = X[start_train:end_test]
+X_train1, y_train1 = X[start_train:end_train], y_raw[start_train:end_train]
+N_train = len(y_train1)
+
+start_train2 = end_train + 150
+end_train2 = start_train2 + 282
+
+X_train2, y_train2 = X[start_train2:end_train2], y_raw[start_train2:end_train2]
+
+# concatenate
+X_train = np.concatenate((X_train1, X_train2))
+y_train = np.concatenate((y_train1, y_train2))
+
+end_test = end_train2
+X_test, y_test = X[start_train:end_test], y_raw[start_train:end_test]
+
 date_time = date_time[start_train:end_test]
 y_raw = y_raw[start_train:end_test]
 y_rect = y0[start_train:end_test]
-
-print('N-train: ', N_train)
 
 """
 DPSGP cleaning
@@ -128,7 +139,7 @@ class GP(ExactGP):
         covar_x = self.covar_module(x)
         return MultivariateNormal(mean_x, covar_x)
 
-sm = SM(num_mixtures=4, ard_num_dims=X_processed.shape[-1])
+sm = SM(num_mixtures=2, ard_num_dims=X_processed.shape[-1])
 sm_kernel = ScaleKernel(sm)
 
 gp = GP(X_processed, y_processed,
@@ -155,9 +166,9 @@ likelihood.eval()
 with torch.no_grad(), gpytorch.settings.fast_pred_var():
         observed_pred = likelihood(gp(torch.tensor(X_test,
                                                    dtype=floating_point)))
-        mu = scaler.inverse_transform(observed_pred.mean.reshape(-1,1))
-        # std = scaler.inverse_transform(observed_pred.stddev)
-        
+        mu = observed_pred.mean
+        std = observed_pred.stddev
+
 #-----------------------------------------------------------------------------
 # REGRESSION PLOT
 #-----------------------------------------------------------------------------
@@ -194,8 +205,6 @@ ax.vlines(
     color='grey'
 )
 dt0 = date_time[sgp.indices[0]]
-print('N-clean: ', len(dt0))
-
 ax.vlines(
     # Sparse clean data
     x=dt0[_z_indices],

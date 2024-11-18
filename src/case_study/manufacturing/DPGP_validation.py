@@ -1,10 +1,9 @@
-import paths
 import pandas as pd
 import numpy as np
 from matplotlib import pyplot as plt
 from sklearn.gaussian_process.kernels import RBF, WhiteKernel
-from models.DPGP import DirichletProcessGaussianProcess as DPGP
-from real_applications.manufacturing.pre_processing import data_processing_methods as dpm
+from models.dpgp import DirichletProcessGaussianProcess as DPGP
+from case_study.manufacturing.data_and_preprocessing.raw import data_processing_methods as dpm
 
 """
 MODEL VALIDATION
@@ -25,16 +24,17 @@ From the glass experts, we know that:
 NSG data
 """
 # NSG post processes data location
-file = paths.get_nsg_path('processed/NSG_data.xlsx')
+file = 'data_and_preprocessing/processed/NSG_processed_data.xlsx'
 
 # Training df
-X_df = pd.read_excel(file, sheet_name='X_training_stand')
-y_df = pd.read_excel(file, sheet_name='y_training')
-y_raw_df = pd.read_excel(file, sheet_name='y_raw_training')
-timelags_df = pd.read_excel(file, sheet_name='time')
+# Training df
+X_df = pd.read_excel(file, sheet_name='X_stand')
+y_df = pd.read_excel(file, sheet_name='y')
+y_raw_df = pd.read_excel(file, sheet_name='y_raw')
+t_df = pd.read_excel(file, sheet_name='timelags')
 
 # Pre-Process training data
-X, y0, N0, D, max_lag, time_lags = dpm.align_arrays(X_df, y_df, timelags_df)
+X, y0, N0, D, max_lag, time_lags = dpm.align_arrays(X_df, y_df, t_df)
 
 # Replace zero values with interpolation
 zeros = y_raw_df.loc[y_raw_df['raw_furnace_faults'] < 1e-2]
@@ -60,11 +60,13 @@ end_train = y_df[y_df['Time stamp'] == '2020-08-30'].index[0]
 N_train = abs(end_train - start_train)
 
 X_train, y_train = X[start_train:end_train], y_raw[start_train:end_train]
-X_test, y_test = X[start_train:end_train], y_raw[start_train:end_train]
 
-date_time = date_time[start_train:end_train]
-y_raw = y_raw[start_train:end_train]
-y_rect = y0[start_train:end_train]
+end_test = end_train + 200
+X_test, y_test = X[start_train:end_test], y_raw[start_train:end_test]
+
+date_time = date_time[start_train:end_test]
+y_raw = y_raw[start_train:end_test]
+y_rect = y0[start_train:end_test]
 
 """
 DPGP regression
@@ -110,6 +112,8 @@ ax.fill_between(date_time,
 ax.plot(date_time, y_raw, color='grey', label='Raw')
 ax.plot(date_time, y_rect, color='blue', label='Filtered')
 ax.plot(date_time, mu, color="red", linewidth = 2.5, label="DPGP")
+plt.axvline(date_time[N_train-1], linestyle='--', linewidth=3,
+            color='black')
 ax.set_xlabel(" Date-time", fontsize=14)
 ax.set_ylabel(" Fault density", fontsize=14)
 plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
