@@ -70,12 +70,8 @@ y_rect = y0[start_train:end_test]
 
 """
 DPGP regression
-"""
-# Save memory
-del X_df, y_df, dpm
 
-# Length scales
-# ls = [7, 64, 7, 7.60, 7, 7, 7, 123, 76, 78]
+Best initial hyper:
 ls = 1000*np.ones(10)
 
 # Kernels
@@ -84,64 +80,80 @@ wn = WhiteKernel(noise_level=0.61**2, noise_level_bounds=(1e-5, 1))
 
 kernel = se + wn
 
-dpgp = DPGP(X_train, y_train, init_K=7, kernel=kernel, DP_max_iter=250, plot_conv=True)
-dpgp.train(pseudo_sparse=True)
+dpgp = DPGP(X_train, y_train, init_K=7, kernel=kernel, DP_max_iter=400)
+"""
+# Save memory
+del X_df, y_df, dpm
 
-# predictions
-mu, std = dpgp.predict(X_test)
+# Length scales
+# ls = [7, 64, 7, 7.60, 7, 7, 7, 123, 76, 78]
+ls = 1000*np.ones(10)
+print(ls)
+# # Kernels
+# se = 1**2 * RBF(length_scale=ls, length_scale_bounds=(0.25, 1e5))
+# wn = WhiteKernel(noise_level=0.61**2, noise_level_bounds=(1e-5, 1))
 
-# The estimated GP hyperparameters
-print('\nEstimated hyper DRGP: ', dpgp.kernel_)
+# kernel = se + wn
 
-#-----------------------------------------------------------------------------
-# REGRESSION PLOT
-#-----------------------------------------------------------------------------
+# dpgp = DPGP(X_train, y_train, init_K=7, kernel=kernel, DP_max_iter=400,
+#             plot_conv=True)
+# dpgp.train(pseudo_sparse=True)
 
-fig, ax = plt.subplots()
+# # predictions
+# mu, std = dpgp.predict(X_test)
 
-# Increase the size of the axis numbers
-plt.rcdefaults()
-plt.rc('xtick', labelsize=14)
-plt.rc('ytick', labelsize=14)
-fig.autofmt_xdate()
+# # The estimated GP hyperparameters
+# print('\nEstimated hyper DRGP: ', dpgp.kernel_)
 
-ax.fill_between(date_time,
-                mu + 3*std, mu - 3*std,
-                alpha=0.5, color='lightcoral',
-                label='Confidence \nBounds (DPGP)')
-ax.plot(date_time, y_raw, color='grey', label='Raw')
-ax.plot(date_time, y_rect, color='blue', label='Filtered')
-ax.plot(date_time, mu, color="red", linewidth = 2.5, label="DPGP")
-plt.axvline(date_time[N_train-1], linestyle='--', linewidth=3,
-            color='black')
-ax.set_xlabel(" Date-time", fontsize=14)
-ax.set_ylabel(" Fault density", fontsize=14)
-plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
+# #-----------------------------------------------------------------------------
+# # REGRESSION PLOT
+# #-----------------------------------------------------------------------------
 
-#-----------------------------------------------------------------------------
-# CLUSTERING PLOT
-#-----------------------------------------------------------------------------
+# fig, ax = plt.subplots()
 
-# processes colors
-color_iter = ['lightgreen', 'orange','red', 'brown','black']
+# # Increase the size of the axis numbers
+# plt.rcdefaults()
+# plt.rc('xtick', labelsize=14)
+# plt.rc('ytick', labelsize=14)
+# fig.autofmt_xdate()
 
-# DP-GP
-enumerate_K = [i for i in range(dpgp.K_opt)]
+# ax.fill_between(date_time,
+#                 mu + 3*std, mu - 3*std,
+#                 alpha=0.5, color='lightcoral',
+#                 label='Confidence \nBounds (DPGP)')
+# ax.plot(date_time, y_raw, color='grey', label='Raw')
+# ax.plot(date_time, y_rect, color='blue', label='Filtered')
+# ax.plot(date_time, mu, color="red", linewidth = 2.5, label="DPGP")
+# plt.axvline(date_time[N_train-1], linestyle='--', linewidth=3,
+#             color='black')
+# ax.set_xlabel(" Date-time", fontsize=14)
+# ax.set_ylabel(" Fault density", fontsize=14)
+# plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
 
-fig, ax = plt.subplots()
-# Increase the size of the axis numbers
-plt.rcdefaults()
-plt.rc('xtick', labelsize=14)
-plt.rc('ytick', labelsize=14)
+# #-----------------------------------------------------------------------------
+# # CLUSTERING PLOT
+# #-----------------------------------------------------------------------------
 
-fig.autofmt_xdate()
-ax.set_title(" Clustering performance", fontsize=18)
-if dpgp.K_opt != 1:
-    for i, (k, c) in enumerate(zip(enumerate_K, color_iter)):
-        ax.plot(date_time[dpgp.indices[k]], y_raw[dpgp.indices[k]],
-                'o',color=c, markersize = 8, label='Noise level '+str(k))
-ax.plot(date_time, mu, color="green", linewidth = 2, label="DDPGP")
-ax.set_xlabel(" Date-time", fontsize=14)
-ax.set_ylabel(" Fault density", fontsize=14)
-plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
-plt.show()
+# # processes colors
+# color_iter = ['lightgreen', 'orange','red', 'brown','black']
+
+# # DP-GP
+# enumerate_K = [i for i in range(dpgp.K_opt)]
+
+# fig, ax = plt.subplots()
+# # Increase the size of the axis numbers
+# plt.rcdefaults()
+# plt.rc('xtick', labelsize=14)
+# plt.rc('ytick', labelsize=14)
+
+# fig.autofmt_xdate()
+# ax.set_title(" Clustering performance", fontsize=18)
+# if dpgp.K_opt != 1:
+#     for i, (k, c) in enumerate(zip(enumerate_K, color_iter)):
+#         ax.plot(date_time[dpgp.indices[k]], y_raw[dpgp.indices[k]],
+#                 'o',color=c, markersize = 8, label='Noise level '+str(k))
+# ax.plot(date_time, mu, color="green", linewidth = 2, label="DDPGP")
+# ax.set_xlabel(" Date-time", fontsize=14)
+# ax.set_ylabel(" Fault density", fontsize=14)
+# plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
+# plt.show()

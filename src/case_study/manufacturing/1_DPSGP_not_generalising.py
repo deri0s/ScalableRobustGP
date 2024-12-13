@@ -70,7 +70,7 @@ inducing_points = X_tensor[::10, :]
 likelihood = GaussianLikelihood()
 
 se = ScaleKernel(RBF(ard_num_dims=X_train.shape[-1],
-                     lengthscale=1.0))
+                     lengthscale=1000))
 
 covar_module = InducingPointKernel(se,
                                    inducing_points=inducing_points,
@@ -78,18 +78,18 @@ covar_module = InducingPointKernel(se,
 
 start_time = time.time()
 sgp = DPSGP(X_train, y_train, init_K=7,
-           gp_model='Sparse',
-           prior_mean=ConstantMean(), kernel=covar_module,
-           noise_var = 0.36,
-           floating_point=floating_point,
-           normalise_y=True,
-           DP_max_iter=400,
-           print_conv=False, plot_conv=True, plot_sol=True)
+            gp_model='Sparse',
+            prior_mean=ConstantMean(), kernel=covar_module,
+            noise_var = 0.36,
+            floating_point=floating_point,
+            normalise_y=True,
+            DP_max_iter=380,
+            print_conv=False, plot_conv=True, plot_sol=True)
 sgp.train()
 mus, stds = sgp.predict(X_test)
 comp_time = time.time() - start_time
 
-print(f'DPSGP training time: {comp_time:.2f} seconds')
+print(f'DPSGP cleaning time: {comp_time:.2f} seconds')
 
 # get inducing points indices
 _z_indices = sgp._z_indices
@@ -131,9 +131,10 @@ class GP(ExactGP):
 sm = SM(num_mixtures=3, ard_num_dims=X_processed.shape[-1])
 sm_kernel = ScaleKernel(sm)
 
+start_time = time.time()
 gp = GP(X_processed, y_processed,
         likelihood=likelihood, mu0=ConstantMean(),
-        kernel=sm_kernel, noise_var=0.02)
+        kernel=sm_kernel, noise_var=0.02) # 0.005
 
 # Train model
 gp.train()
@@ -157,6 +158,8 @@ with torch.no_grad(), gpytorch.settings.fast_pred_var():
                                                    dtype=floating_point)))
         mu = scaler.inverse_transform(observed_pred.mean.reshape(-1,1))
         # std = scaler.inverse_transform(observed_pred.stddev)
+comp_time = time.time() - start_time
+print(f'DPSGP extrapolating time: {comp_time:.2f} seconds')
         
 #-----------------------------------------------------------------------------
 # REGRESSION PLOT

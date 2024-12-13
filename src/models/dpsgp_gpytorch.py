@@ -40,6 +40,7 @@ class DirichletProcessSparseGaussianProcess():
                  prior_mean=gpytorch.means.ConstantMean(),
                  kernel=RBF(),
                  likelihood=GaussianLikelihood(),
+                 lengthscale = 1.0,
                  noise_var = 0.05,
                  floating_point = torch.float32,
                  normalise_y=False, N_iter=8, DP_max_iter=70,
@@ -58,10 +59,11 @@ class DirichletProcessSparseGaussianProcess():
 
                 self.Y = Y                      # Targets never vstacked
                 self.N = len(Y)                 # No. training points
-                self.D = self.X.dim()           # No. Dimensions
+                self.D = self.X.shape[-1]           # No. Dimensions
                 self.normalise_y = normalise_y  # Normalise data
                 self.mu0 = prior_mean
                 self.kernel = kernel
+                self.lengthscale = lengthscale,
                 self.N_iter = N_iter            # Max number of iterations (DPGP)
                 self.DP_max_iter = DP_max_iter  # Max number of iterations (DP)
                 self.print_conv = print_conv    # Print hyperparameter estimation at each step
@@ -90,10 +92,27 @@ class DirichletProcessSparseGaussianProcess():
                                       self.likelihood,
                                       self.mu0, self.kernel, noise_var)
 
+                # Initialise kernel parameters
+                if self.gp_model == 'Sparse':
+                    if np.isscalar(self.lengthscale):
+                        self.model.covar_module.base_kernel.base_kernel.lengthscale = self.lengthscale 
+                    else:
+                        assert np.shape(self.lengthscale)[1] == self.D, "Input dimension different from lengthscale vector size"
+                        self.model.covar_module.base_kernel.base_kernel.lengthscale = torch.tensor(self.lengthscale)
+                else:
+                    if np.isscalar(self.lengthscale):
+                            self.model.covar_module.base_kernel.lengthscale = self.lengthscale 
+                    else:
+                        assert np.shape(self.lengthscale)[1] == self.D, "Input dimension different from lengthscale vector size"
+                        self.model.covar_module.base_kernel.lengthscale = torch.tensor(self.lengthscale)
+
+                print("\nInitial hyper:",
+                      self.model.covar_module.base_kernel.base_kernel.lengthscale.tolist(),
+                      '\nNoise var: ', self.model.likelihood.noise.item())
                 # Train model
                 self.model.train()
                 self.likelihood.train()
-
+                
                 optimizer = torch.optim.Adam(self.model.parameters(), lr=0.01)
                 mll = ExactMarginalLogLikelihood(self.likelihood, self.model)
 
@@ -110,10 +129,16 @@ class DirichletProcessSparseGaussianProcess():
                     print('\nThe very first estimated hyperparameters')
                     if self.gp_model == 'Sparse':
                         print("Outputscale:", self.model.covar_module.base_kernel.outputscale.item())
-                        print("Lengthscale:", self.model.covar_module.base_kernel.base_kernel.lengthscale.item())
+                        if np.isscalar(self.lengthscale):
+                            print("Lengthscale:", self.model.covar_module.base_kernel.base_kernel.lengthscale.item())
+                        else:
+                            print("Lengthscale:", self.model.covar_module.base_kernel.base_kernel.lengthscale.tolist())
                     else:
                         print("Outputscale:", self.model.covar_module.outputscale.item())
-                        print("Lengthscale:", self.model.covar_module.base_kernel.lengthscale.item())
+                        if np.isscalar(self.lengthscale):
+                            print("Lengthscale:", self.model.covar_module.base_kernel.lengthscale.item())
+                        else:
+                            print("Lengthscale:", self.model.covar_module.base_kernel.lengthscale.tolist())
                     print("Noise:", self.likelihood.noise.item(), '\n')
 
                 # model evaluation
