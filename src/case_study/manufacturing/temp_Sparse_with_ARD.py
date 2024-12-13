@@ -54,6 +54,10 @@ print('N-train: ', N_train)
 
 """
 DPSGP cleaning
+
+GPytotch is very sensitive to the initial hyperparameters.
+I first used the DPGP sklearn version to estimate the initial
+lengthscales for this script.
 """
 import torch
 from gpytorch.likelihoods import GaussianLikelihood
@@ -71,28 +75,83 @@ likelihood = GaussianLikelihood()
 
 se = ScaleKernel(RBF(ard_num_dims=X_train.shape[-1]))
 
-print('In the main script: ', se.base_kernel.lengthscale.tolist(), '\n')
 covar_module = InducingPointKernel(se,
                                    inducing_points=inducing_points,
                                    likelihood=likelihood)
 
-# start_time = time.time()
+# lss = [0.284, 1.54e+04, 0.48, 0.662, 2.79e+04, 337, 4.86e+04, 3.71e+04, 1.13, 0.25]
+lss = [1e+05, 342, 516, 0.468, 0.25, 6.57e+04, 1.33e+03, 0.878, 1.07, 4.71e+03]
+start_time = time.time()
 sgp = DPSGP(X_train, y_train, init_K=7,
             gp_model='Sparse',
             prior_mean=ConstantMean(), kernel=covar_module,
-            lengthscale=100*np.ones(X.shape[-1]),
-            noise_var = 0.36,
+            lengthscale=lss, #0.05*np.ones(X.shape[-1]),
+            N_iter=15,
+            noise_var = 0.06,
             floating_point=floating_point,
             normalise_y=True,
-            DP_max_iter=380,
+            DP_max_iter=390,
             print_conv=True, plot_conv=True, plot_sol=True)
-# # sgp.train()
-# # mus, stds = sgp.predict(X_test)
-# # # comp_time = time.time() - start_time
+sgp.train()
+mus, stds = sgp.predict(X_test)
+comp_time = time.time() - start_time
 
-# # sgp.gp.covar_module.kernel.lengthscale
+print(f'DPSGP cleaning time: {comp_time:.2f} seconds')
 
-# # print(f'DPSGP cleaning time: {comp_time:.2f} seconds')
+print('\n Furnace parameters relevance')
+d = {i: ls for i, ls in zip(X_df.columns, sgp.lengthscale[0])}
+print(d)
 
-# # # get inducing points indices
-# # _z_indices = sgp._z_indices
+# get inducing points indices
+_z_indices = sgp._z_indices
+
+#-----------------------------------------------------------------------------
+# REGRESSION PLOT
+#-----------------------------------------------------------------------------
+fig, ax = plt.subplots()
+
+# Increase the size of the axis numbers
+plt.rcdefaults()
+plt.rc('xtick', labelsize=14)
+plt.rc('ytick', labelsize=14)
+fig.autofmt_xdate()
+
+ax.fill_between(date_time,
+                mus + 3*stds, mus - 3*stds,
+                alpha=0.5, color='lightcoral',
+                label='3$\\sigma$')
+ax.plot(date_time, y_raw, color='grey', label='Raw')
+ax.plot(date_time, y_rect, color='blue', label='Filtered')
+ax.plot(date_time, mus, color="red", linewidth = 2.5, label="Cleaned")
+plt.axvline(date_time[N_train-1], linestyle='--', linewidth=3,
+            color='black')
+plt.axvline(date_time[N_train+150-1], linestyle='--', linewidth=3,
+            color='black')
+
+ax.vlines(
+    x=date_time[::10],
+    ymin=-0.5,
+    ymax=y_train.max().item(),
+    alpha=0.3,
+    linewidth=1.5,
+    ls='--',
+    label="z0",
+    color='grey'
+)
+dt0 = date_time[sgp.indices[0]]
+print('N-clean: ', len(dt0))
+
+ax.vlines(
+    # Sparse clean data
+    x=dt0[_z_indices],
+    ymin=-0.5,
+    ymax=y_train.max().item(),
+    alpha=0.3,
+    linewidth=1.5,
+    label="z*",
+    color='orange'
+)
+ax.set_xlabel(" Date-time", fontsize=14)
+ax.set_ylabel(" Fault density", fontsize=14)
+plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
+plt.show()

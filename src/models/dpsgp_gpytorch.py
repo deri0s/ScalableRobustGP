@@ -98,17 +98,14 @@ class DirichletProcessSparseGaussianProcess():
                         self.model.covar_module.base_kernel.base_kernel.lengthscale = self.lengthscale 
                     else:
                         assert np.shape(self.lengthscale)[1] == self.D, "Input dimension different from lengthscale vector size"
-                        self.model.covar_module.base_kernel.base_kernel.lengthscale = torch.tensor(self.lengthscale)
+                        self.model.covar_module.base_kernel.base_kernel.lengthscale = torch.tensor(np.array(self.lengthscale))
                 else:
                     if np.isscalar(self.lengthscale):
                             self.model.covar_module.base_kernel.lengthscale = self.lengthscale 
                     else:
                         assert np.shape(self.lengthscale)[1] == self.D, "Input dimension different from lengthscale vector size"
-                        self.model.covar_module.base_kernel.lengthscale = torch.tensor(self.lengthscale)
+                        self.model.covar_module.base_kernel.lengthscale = torch.tensor(np.array(self.lengthscale))
 
-                print("\nInitial hyper:",
-                      self.model.covar_module.base_kernel.base_kernel.lengthscale.tolist(),
-                      '\nNoise var: ', self.model.likelihood.noise.item())
                 # Train model
                 self.model.train()
                 self.likelihood.train()
@@ -124,22 +121,22 @@ class DirichletProcessSparseGaussianProcess():
                     loss.backward()
                     optimizer.step()
 
+                # Save estimated hyperparameters
+                if self.gp_model == 'Sparse':
+                    if np.isscalar(self.lengthscale):
+                        self.lengthscale = self.model.covar_module.base_kernel.base_kernel.lengthscale.item()
+                    else:
+                        self.lengthscale = self.model.covar_module.base_kernel.base_kernel.lengthscale.tolist()
+                else:
+                    if np.isscalar(self.lengthscale):
+                        self.lengthscale = self.model.covar_module.base_kernel.lengthscale.item()
+                    else:
+                        self.lengthscale = self.model.covar_module.base_kernel.lengthscale.tolist()
+
                 # Print the estimated hyperparameters?
                 if self.print_conv:
                     print('\nThe very first estimated hyperparameters')
-                    if self.gp_model == 'Sparse':
-                        print("Outputscale:", self.model.covar_module.base_kernel.outputscale.item())
-                        if np.isscalar(self.lengthscale):
-                            print("Lengthscale:", self.model.covar_module.base_kernel.base_kernel.lengthscale.item())
-                        else:
-                            print("Lengthscale:", self.model.covar_module.base_kernel.base_kernel.lengthscale.tolist())
-                    else:
-                        print("Outputscale:", self.model.covar_module.outputscale.item())
-                        if np.isscalar(self.lengthscale):
-                            print("Lengthscale:", self.model.covar_module.base_kernel.lengthscale.item())
-                        else:
-                            print("Lengthscale:", self.model.covar_module.base_kernel.lengthscale.tolist())
-                    print("Noise:", self.likelihood.noise.item(), '\n')
+                    self.print_hyper(self.model)
 
                 # model evaluation
                 self.mll_eval = loss.detach().numpy()
@@ -190,7 +187,34 @@ class DirichletProcessSparseGaussianProcess():
                     ax.set_ylabel(" Fault density", fontsize=14)
                     plt.legend(loc=0, prop={"size":18}, facecolor="white",
                                 framealpha=1.0)
-                                    
+                    
+    def update_ls(self, gp):
+        if self.gp_model == 'Sparse':
+            if np.isscalar(self.lengthscale):
+                self.lengthscale = gp.covar_module.base_kernel.base_kernel.lengthscale.item()
+            else:
+                self.lengthscale = gp.covar_module.base_kernel.base_kernel.lengthscale.tolist()
+        else:
+            if np.isscalar(self.lengthscale):
+                self.lengthscale = gp.covar_module.base_kernel.lengthscale.item()
+            else:
+                self.lengthscale = gp.covar_module.base_kernel.lengthscale.tolist()
+
+    def print_hyper(self, gp):
+        if self.gp_model == 'Sparse':
+            print("Outputscale:", gp.covar_module.base_kernel.outputscale.item())
+            if np.isscalar(self.lengthscale):
+                print("Lengthscale:", gp.covar_module.base_kernel.base_kernel.lengthscale.item())
+            else:
+                print("Lengthscale:", gp.covar_module.base_kernel.base_kernel.lengthscale.tolist())
+        else:
+            print("Outputscale:", gp.covar_module.outputscale.item())
+            if np.isscalar(self.lengthscale):
+                print("Lengthscale:", gp.covar_module.base_kernel.lengthscale.item())
+            else:
+                print("Lengthscale:", gp.covar_module.base_kernel.lengthscale.tolist())
+        print("Noise:", self.likelihood.noise.item(), '\n')
+
     def plot_convergence(self, lnP, title):
         plt.figure()
         ll = lnP[~np.all(lnP== 0.0, axis=1)]
@@ -377,7 +401,7 @@ class DirichletProcessSparseGaussianProcess():
         
         # Stop if the change in the log-likelihood is no > than 10% of the 
         # log-likelihood evaluated with the initial hyperparameters
-        tolerance = abs(lnP[0]*tol)/100
+        tolerance = abs(lnP[0]*tol)/1000
         
         while i < max_iter:
             """
@@ -405,11 +429,21 @@ class DirichletProcessSparseGaussianProcess():
                                self.likelihood,
                                self.mu0, self.kernel, noise_var)
             
+            # Update lengthscale
+            self.update_ls(self.gp)
+
+            if self.gp_model == 'Sparse':
+                self.gp.covar_module.base_kernel.base_kernel.outputscale = 1
+                self.gp.covar_module.base_kernel.base_kernel.lengthscale = self.lengthscale
+            else:
+                self.gp.covar_module.base_kernel.outputscale = 1
+                self.model.covar_module.base_kernel.lengthscale = self.lengthscale
+            
             # Train model
             self.gp.train()
             self.likelihood.train()
 
-            optimizer = torch.optim.Adam(self.gp.parameters(), lr=0.01)
+            optimizer = torch.optim.Adam(self.gp.parameters(), lr=0.01) #lr=0.01
             mll = ExactMarginalLogLikelihood(self.likelihood, self.gp)
 
             for conteo in range(100):
@@ -439,14 +473,7 @@ class DirichletProcessSparseGaussianProcess():
             if self.print_conv:
                 print('\nTraining...\n Iteration: ', i, ' tolerance: ', tolerance,
                       ' calculated(GP): ', abs(lnP[i+1] - lnP[i]), '\n')
-                if self.gp_model=='Sparse':
-                    print("Outputscale:", self.gp.covar_module.base_kernel.outputscale.item())
-                    print("Lengthscale:", self.gp.covar_module.base_kernel.base_kernel.lengthscale.item())
-                else:
-                    print("Outputscale:", self.gp.covar_module.outputscale.item())
-                    print("Lengthscale:", self.gp.covar_module.base_kernel.lengthscale.item())
-                print("Noise:", self.likelihood.noise.item())
-
+                self.print_hyper(self.gp)
 
             if self.plot_sol:
                 self.plot_solution(K, index, mu, i)

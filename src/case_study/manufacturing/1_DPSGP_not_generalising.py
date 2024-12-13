@@ -160,7 +160,7 @@ with torch.no_grad(), gpytorch.settings.fast_pred_var():
         # std = scaler.inverse_transform(observed_pred.stddev)
 comp_time = time.time() - start_time
 print(f'DPSGP extrapolating time: {comp_time:.2f} seconds')
-        
+
 #-----------------------------------------------------------------------------
 # REGRESSION PLOT
 #-----------------------------------------------------------------------------
