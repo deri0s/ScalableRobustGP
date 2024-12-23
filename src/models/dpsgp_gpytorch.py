@@ -401,7 +401,7 @@ class DirichletProcessSparseGaussianProcess():
         
         # Stop if the change in the log-likelihood is no > than 10% of the 
         # log-likelihood evaluated with the initial hyperparameters
-        tolerance = abs(lnP[0]*tol)/1000
+        tolerance = abs(lnP[0]*tol)/700
         
         while i < max_iter:
             """

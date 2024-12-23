@@ -54,8 +54,8 @@ date_time = dpm.adjust_time_lag(y_df['Time stamp'].values,
 
 # Train and test data
 N, D = np.shape(X)
-start_train = y_df[y_df['Time stamp'] == '2020-08-15'].index[0]
-end_train = y_df[y_df['Time stamp'] == '2020-08-30'].index[0]
+start_train = y_df[y_df['Time stamp'] == '2020-08-14'].index[0]
+end_train = y_df[y_df['Time stamp'] == '2020-08-29'].index[0]
 N_train = abs(end_train - start_train)
 
 X_train, y_train = X[start_train:end_train], y_raw[start_train:end_train]

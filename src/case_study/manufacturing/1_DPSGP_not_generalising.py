@@ -10,7 +10,7 @@ from sklearn.decomposition import PCA
 NSG data
 """
 # NSG post processes data location
-file = 'data_and_preprocessing/processed/Spearman_corr_timelags.xlsx'
+file = 'data_and_preprocessing/processed/RandomForest_timelags.xlsx'
 
 # Training df
 X_df = pd.read_excel(file, sheet_name='X_stand')
@@ -37,14 +37,14 @@ date_time = dpm.adjust_time_lag(y_df['Time stamp'].values,
 
 # Train and test data
 N, D = np.shape(X)
-start_train = y_df[y_df['Time stamp'] == '2020-08-15'].index[0]
-end_train = y_df[y_df['Time stamp'] == '2020-08-30'].index[0]
+start_train = y_df[y_df['Time stamp'] == '2020-08-14'].index[0]
+end_train = y_df[y_df['Time stamp'] == '2020-08-29'].index[0]
 model_N = 1
 
 X_train, y_train = X[start_train:end_train], y_raw[start_train:end_train]
 N_train = len(X_train)
 
-end_test = end_train + 200
+end_test = end_train + 900
 X_test = X[start_train:end_test]
 date_time = date_time[start_train:end_test]
 y_raw = y_raw[start_train:end_test]
@@ -77,14 +77,20 @@ covar_module = InducingPointKernel(se,
                                    likelihood=likelihood)
 
 start_time = time.time()
+# lss = [1e+05, 342, 516, 0.468, 0.25, 6.57e+04, 1.33e+03, 0.878, 1.07, 4.71e+03]
+# lss = [2.6, 0.963, 1e+05, 0.679, 1e+05, 5.25, 0.25, 4.05e+04, 2, 575]
+lss = [0.284, 1.54e+04, 0.48, 0.662, 2.79e+04, 337, 4.86e+04, 3.71e+04, 1.13, 0.25]
+start_time = time.time()
 sgp = DPSGP(X_train, y_train, init_K=7,
             gp_model='Sparse',
             prior_mean=ConstantMean(), kernel=covar_module,
-            noise_var = 0.36,
+            lengthscale=lss, #0.05*np.ones(X.shape[-1]),
+            N_iter=15,
+            noise_var = 0.06,
             floating_point=floating_point,
             normalise_y=True,
-            DP_max_iter=380,
-            print_conv=False, plot_conv=True, plot_sol=True)
+            DP_max_iter=390,
+            print_conv=True, plot_conv=True, plot_sol=True)
 sgp.train()
 mus, stds = sgp.predict(X_test)
 comp_time = time.time() - start_time
@@ -95,7 +101,7 @@ print(f'DPSGP cleaning time: {comp_time:.2f} seconds')
 _z_indices = sgp._z_indices
 
 # save predictions to use it in another scipt as the `true` fault_density
-# d = {"date_time": date_time, "mu_val": mus}
+# d = {"date_time": date_time, "gp_pred": mus}
 
 # df = pd.DataFrame(d)
 # df.to_csv("validation_data.csv")
