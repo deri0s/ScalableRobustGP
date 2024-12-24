@@ -4,13 +4,20 @@ import time
 from matplotlib import pyplot as plt
 from sklearn.preprocessing import StandardScaler as ss
 from case_study.manufacturing.data_and_preprocessing.raw import data_processing_methods as dpm
-from sklearn.decomposition import PCA
 
 """
 NSG data
+
+Choose:
+- NSG_processed_data.xlsx:           10 inpus
+- NSG_processed_data_14_inputs.xlsx: 14 inputs
+
+The timelags provided in the 14 inputs data were obtained using a
+Random Forest approach. 
 """
 # NSG post processes data location
-file = 'data_and_preprocessing/processed/Spearman_corr_timelags.xlsx'
+file = 'data_and_preprocessing/processed/NSG_processed_data.xlsx'
+# file = 'data_and_preprocessing/processed/NSG_processed_data_14_inputs.xlsx'
 
 # Training df
 X_df = pd.read_excel(file, sheet_name='X_stand')
@@ -37,9 +44,9 @@ date_time = dpm.adjust_time_lag(y_df['Time stamp'].values,
 
 # Train and test data
 N, D = np.shape(X)
-start_train = y_df[y_df['Time stamp'] == '2020-08-15'].index[0]
-end_train = y_df[y_df['Time stamp'] == '2020-08-30'].index[0]
-model_N = 1
+# '2020-08-14
+start_train = y_df[y_df['Time stamp'] == '2020-07-25-10'].index[0]
+end_train = y_df[y_df['Time stamp'] == '2020-08-27-14'].index[0]
 
 X_train, y_train = X[start_train:end_train], y_raw[start_train:end_train]
 N_train = len(X_train)
@@ -79,8 +86,13 @@ covar_module = InducingPointKernel(se,
                                    inducing_points=inducing_points,
                                    likelihood=likelihood)
 
+# 10 inputs
 # lss = [0.284, 1.54e+04, 0.48, 0.662, 2.79e+04, 337, 4.86e+04, 3.71e+04, 1.13, 0.25]
-lss = [1e+05, 342, 516, 0.468, 0.25, 6.57e+04, 1.33e+03, 0.878, 1.07, 4.71e+03]
+# lss = [1e+05, 342, 516, 0.468, 0.25, 6.57e+04, 1.33e+03, 0.878, 1.07, 4.71e+03]
+lss = [2.6, 0.963, 1e+05, 0.679, 1e+05, 5.25, 0.25, 4.05e+04, 2, 575]
+
+# 14 inputs
+# lss = [1.83, 0.318, 603, 0.651, 5.87e+04, 3.0, 1.17, 1.2e+03, 4.63, 0.25, 1.19e+04, 52.2, 663, 17.3]
 start_time = time.time()
 sgp = DPSGP(X_train, y_train, init_K=7,
             gp_model='Sparse',
@@ -99,11 +111,19 @@ comp_time = time.time() - start_time
 print(f'DPSGP cleaning time: {comp_time:.2f} seconds')
 
 print('\n Furnace parameters relevance')
-d = {i: ls for i, ls in zip(X_df.columns, sgp.lengthscale[0])}
-print(d)
+d = {'Features': X_df.columns, 'Importance': sgp.lengthscale[0]}
+fidf = pd.DataFrame.from_dict(d)
+fidf = fidf.sort_values(by='Importance')
+print(fidf.head(14))
 
 # get inducing points indices
 _z_indices = sgp._z_indices
+
+# # save predictions to use it in another scipt as the `true` fault_density
+# d = {"date_time": date_time, "gp_pred": mus}
+
+# df = pd.DataFrame(d)
+# df.to_csv("validation_data.csv")
 
 #-----------------------------------------------------------------------------
 # REGRESSION PLOT

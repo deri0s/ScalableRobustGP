@@ -24,7 +24,8 @@ From the glass experts, we know that:
 NSG data
 """
 # NSG post processes data location
-file = 'data_and_preprocessing/processed/NSG_processed_data.xlsx'
+# file = 'data_and_preprocessing/processed/NSG_processed_data.xlsx'
+file = 'data_and_preprocessing/processed/NSG_processed_data_14_inputs.xlsx'
 
 # Training df
 X_df = pd.read_excel(file, sheet_name='X_stand')
@@ -54,7 +55,7 @@ date_time = dpm.adjust_time_lag(y_df['Time stamp'].values,
 
 # Train and test data
 N, D = np.shape(X)
-start_train = y_df[y_df['Time stamp'] == '2020-08-14'].index[0]
+start_train = y_df[y_df['Time stamp'] == '2020-08-10'].index[0]
 end_train = y_df[y_df['Time stamp'] == '2020-08-29'].index[0]
 N_train = abs(end_train - start_train)
 
@@ -86,7 +87,7 @@ del X_df, y_df, dpm
 
 # Length scales
 # ls = [7, 64, 7, 7.60, 7, 7, 7, 123, 76, 78]
-ls = 1000*np.ones(10)
+ls = 1000*np.ones(14)
 # Kernels
 se = 1**2 * RBF(length_scale=ls, length_scale_bounds=(0.25, 1e5))
 wn = WhiteKernel(noise_level=0.61**2, noise_level_bounds=(1e-5, 1))
