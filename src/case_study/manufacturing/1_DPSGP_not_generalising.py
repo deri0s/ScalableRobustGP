@@ -10,7 +10,8 @@ from sklearn.decomposition import PCA
 NSG data
 """
 # NSG post processes data location
-file = 'data_and_preprocessing/processed/RandomForest_timelags.xlsx'
+# file = 'data_and_preprocessing/processed/NSG_processed_data.xlsx'
+file = 'data_and_preprocessing/processed/NSG_processed_data_14_inputs.xlsx'
 
 # Training df
 X_df = pd.read_excel(file, sheet_name='X_stand')
@@ -37,14 +38,14 @@ date_time = dpm.adjust_time_lag(y_df['Time stamp'].values,
 
 # Train and test data
 N, D = np.shape(X)
-start_train = y_df[y_df['Time stamp'] == '2020-08-14'].index[0]
-end_train = y_df[y_df['Time stamp'] == '2020-08-29'].index[0]
-model_N = 1
+# '2020-08-14
+start_train = y_df[y_df['Time stamp'] == '2020-07-25-10'].index[0]
+end_train = y_df[y_df['Time stamp'] == '2020-08-27-14'].index[0]
 
 X_train, y_train = X[start_train:end_train], y_raw[start_train:end_train]
 N_train = len(X_train)
 
-end_test = end_train + 900
+end_test = end_train + 200
 X_test = X[start_train:end_test]
 date_time = date_time[start_train:end_test]
 y_raw = y_raw[start_train:end_test]
@@ -54,6 +55,9 @@ print('N-train: ', N_train)
 
 """
 DPSGP cleaning
+
+GPytotch is very sensitive to the initial hyperparameters.
+I first used the DPGP sklearn version to estimate the initial ls.
 """
 import torch
 from gpytorch.likelihoods import GaussianLikelihood
@@ -69,17 +73,19 @@ inducing_points = X_tensor[::10, :]
 
 likelihood = GaussianLikelihood()
 
-se = ScaleKernel(RBF(ard_num_dims=X_train.shape[-1],
-                     lengthscale=1000))
+se = ScaleKernel(RBF(ard_num_dims=X_train.shape[-1]))
 
 covar_module = InducingPointKernel(se,
                                    inducing_points=inducing_points,
                                    likelihood=likelihood)
 
-start_time = time.time()
+# 10 inputs
+# lss = [0.284, 1.54e+04, 0.48, 0.662, 2.79e+04, 337, 4.86e+04, 3.71e+04, 1.13, 0.25]
 # lss = [1e+05, 342, 516, 0.468, 0.25, 6.57e+04, 1.33e+03, 0.878, 1.07, 4.71e+03]
 # lss = [2.6, 0.963, 1e+05, 0.679, 1e+05, 5.25, 0.25, 4.05e+04, 2, 575]
-lss = [0.284, 1.54e+04, 0.48, 0.662, 2.79e+04, 337, 4.86e+04, 3.71e+04, 1.13, 0.25]
+
+# 14 inputs
+lss = [1.83, 0.318, 603, 0.651, 5.87e+04, 3.0, 1.17, 1.2e+03, 4.63, 0.25, 1.19e+04, 52.2, 663, 17.3]
 start_time = time.time()
 sgp = DPSGP(X_train, y_train, init_K=7,
             gp_model='Sparse',
@@ -97,9 +103,14 @@ comp_time = time.time() - start_time
 
 print(f'DPSGP cleaning time: {comp_time:.2f} seconds')
 
+print('\n Furnace parameters relevance')
+d = {'Features': X_df.columns, 'Importance': sgp.lengthscale[0]}
+fidf = pd.DataFrame.from_dict(d)
+fidf = fidf.sort_values(by='Importance')
+print(fidf.head(14))
+
 # get inducing points indices
 _z_indices = sgp._z_indices
-
 # save predictions to use it in another scipt as the `true` fault_density
 # d = {"date_time": date_time, "gp_pred": mus}
 
@@ -121,6 +132,7 @@ y_torch = torch.tensor(y_stand, dtype=floating_point)
 y_processed = torch.tensor(np.hstack(y_torch[sgp.indices[0]]))
 
 X_processed = X_tensor[sgp.indices[0]]
+X_test = torch.tensor(X_test, dtype=floating_point)
 
 class GP(ExactGP):
     def __init__(self, train_x, train_y, likelihood, mu0, kernel, noise_var):
@@ -134,10 +146,10 @@ class GP(ExactGP):
         covar_x = self.covar_module(x)
         return MultivariateNormal(mean_x, covar_x)
 
-sm = SM(num_mixtures=3, ard_num_dims=X_processed.shape[-1])
-sm_kernel = ScaleKernel(sm)
-
-start_time = time.time()
+sm = ScaleKernel(SM(num_mixtures=3, ard_num_dims=X_processed.shape[-1]))
+sm_kernel = InducingPointKernel(sm,
+                                inducing_points=inducing_points,
+                                likelihood=likelihood)
 gp = GP(X_processed, y_processed,
         likelihood=likelihood, mu0=ConstantMean(),
         kernel=sm_kernel, noise_var=0.02) # 0.005
@@ -145,7 +157,6 @@ gp = GP(X_processed, y_processed,
 # Train model
 gp.train()
 likelihood.train()
-
 optimizer = torch.optim.Adam(gp.parameters(), lr=0.01)
 mll = ExactMarginalLogLikelihood(likelihood, gp)
 
@@ -155,7 +166,7 @@ for i in range(100):
     loss = -mll(output, y_processed)
     loss.backward()
     optimizer.step()
-
+    
 # Predictions
 gp.eval()
 likelihood.eval()
@@ -166,6 +177,14 @@ with torch.no_grad(), gpytorch.settings.fast_pred_var():
         # std = scaler.inverse_transform(observed_pred.stddev)
 comp_time = time.time() - start_time
 print(f'DPSGP extrapolating time: {comp_time:.2f} seconds')
+
+# Print the most important features estimated by the Spectral Mixture Kernel ARD feature
+feature_importance = gp.covar_module.base_kernel.base_kernel.mixture_weights.mean(0).detach().numpy()
+feature_importance_df = pd.DataFrame({
+    'Feature': X_df.columns,
+    'Importance': feature_importance
+}).sort_values(by='Importance', ascending=False)
+print(feature_importance_df)
 
 #-----------------------------------------------------------------------------
 # REGRESSION PLOT
