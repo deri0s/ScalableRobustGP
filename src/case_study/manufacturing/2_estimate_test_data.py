@@ -10,7 +10,8 @@ NSG data
 """
 # NSG post processes data location
 file_val = 'validation_data.xlsx'
-file = 'data_and_preprocessing/processed/NSG_processed_data_14_inputs.xlsx'
+# file = 'data_and_preprocessing/processed/NSG_processed_data_14_inputs.xlsx'
+file = 'data_and_preprocessing/processed/NSG_processed_data.xlsx'
 
 # Training df
 X_df = pd.read_excel(file, sheet_name='X_stand')
@@ -32,12 +33,10 @@ last  = y_df[y_df['Time stamp'] == last_date].index[0]
 
 X_df = X_df.iloc[first:last, :]
 y_df = y_df.iloc[first:last, :]
+y_raw_df = y_raw_df.iloc[first:last, :]
 
 # Pre-Process training data
 X, y0, N0, D, max_lag, time_lags = dpm.align_arrays(X_df, y_df, t_df)
-
-print('max-lag: ', max_lag)
-print('y0: ', len(y0), ' 20%: ', int(len(y0)*0.25), ' 3 days: 216')
 
 # Replace zero values with interpolation
 zeros = y_raw_df.loc[y_raw_df['raw_furnace_faults'] <= 1e-1]
@@ -55,7 +54,7 @@ date_time = dpm.adjust_time_lag(y_df['Time stamp'].values,
 
 # Train and test data
 N, D = np.shape(X)
-end_train = N - int(len(y0)*0.25)
+end_train = N - int(len(y0)*0.12)
 
 X_train, y_train = X[0:end_train], y_raw[0:end_train]
 date_train = date_time[0:end_train]
@@ -65,6 +64,10 @@ X_test = X[0:N]
 date_time = date_time[0:N]
 y_raw = y_raw[0:N]
 y_rect = y0[0:N]
+
+print('max-lag: ', max_lag)
+print('y-rect: ', len(y_rect), ' 20%: ', int(len(y_rect)*0.12),
+      ' 3 days: 216')
 
 #-----------------------------------------------------------------------------
 # REGRESSION PLOT
@@ -78,11 +81,8 @@ plt.rc('xtick', labelsize=14)
 plt.rc('ytick', labelsize=14)
 fig.autofmt_xdate()
 
-print(type(date_timev[0]))
-print(type(date_time[0]))
-
 ax.plot(date_timev, val_mu, color='green', label='Val')
-ax.plot(date_train, y_train, color='grey', label='Raw')
+ax.plot(date_time, y_raw, color='grey', label='Raw')
 ax.plot(date_time, y_rect, color='blue', label='Filtered')
 plt.axvline(date_time[end_train-1], linestyle='--', linewidth=3,
             color='black')
