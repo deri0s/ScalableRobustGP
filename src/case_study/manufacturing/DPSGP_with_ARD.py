@@ -175,3 +175,6 @@ ax.set_xlabel(" Date-time", fontsize=14)
 ax.set_ylabel(" Fault density", fontsize=14)
 plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
 plt.show()
+
+print('mu-shape: ', np.shape(mus))
+print('mu-shape: ', np.shape(stds))
