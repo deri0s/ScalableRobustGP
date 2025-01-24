@@ -137,9 +137,15 @@ print('N-induced: ', len(_z_indices))
 
 # # save predictions to use it in another scipt as the `true` fault_density
 d = {"date_time": date_time, "gp_pred": mu}
+y_df = pd.DataFrame(d)
 
-df = pd.DataFrame(d)
-df.to_excel("validation_data.xlsx")
+# Define an Excel writer object and the target file
+writer = pd.ExcelWriter("validation_data.xlsx")
+
+# Save to spreadsheet
+X_df.to_excel(writer, sheet_name='X_stand', index=False)
+y_df.to_excel(writer, sheet_name='y_nonstand', index=False)
+writer._save()
 
 #-----------------------------------------------------------------------------
 # REGRESSION PLOT
