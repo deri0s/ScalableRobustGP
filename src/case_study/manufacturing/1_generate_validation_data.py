@@ -51,8 +51,6 @@ date_time = date_time[start_train:end_train]
 y_raw = y_raw[start_train:end_train]
 y_rect = y0[start_train:end_train]
 
-print(len(y_raw))
-
 #-----------------------------------------------------------------------------
 # PLOT TRAINING DATA
 #-----------------------------------------------------------------------------
@@ -135,8 +133,14 @@ _z_indices = sgp._z_indices
 
 print('N-induced: ', len(_z_indices))
 
-# # save predictions to use it in another scipt as the `true` fault_density
+# save predictions to use it in another scipt as the `true` fault_density
+dx = {}
+for d, name in enumerate(X_df.columns):
+    dx[name] = X_train[:, d]
+
 d = {"date_time": date_time, "gp_pred": mu}
+
+X_df = pd.DataFrame(dx)
 y_df = pd.DataFrame(d)
 
 # Define an Excel writer object and the target file
