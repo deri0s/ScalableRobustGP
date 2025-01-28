@@ -1,8 +1,16 @@
+import torch
+import time
+import gpytorch
 import pandas as pd
 import numpy as np
-import time
+from sklearn.preprocessing import StandardScaler as ss
 from matplotlib import pyplot as plt
-from case_study.manufacturing.data_and_preprocessing.raw import data_processing_methods as dpm
+from gpytorch.models import ExactGP
+from gpytorch.likelihoods import GaussianLikelihood
+from gpytorch.distributions import MultivariateNormal
+from gpytorch.means import ConstantMean
+from gpytorch.mlls import ExactMarginalLogLikelihood
+from gpytorch.kernels import InducingPointKernel, ScaleKernel, RBFKernel as RBF
 
 """
 NSG data
@@ -64,9 +72,6 @@ assert len(X_train_np) == len(y_train_nonstand), 'X-train and y-train length are
 assert len(X_test) == len(y_nonstand), 'X-test and y-test length are not the same'
 
 # Standardise outputs
-import torch
-from sklearn.preprocessing import StandardScaler as ss
-
 y_train = y_train_nonstand.reshape(-1,1)
 scaler = ss()
 scaler.fit(y_train)
@@ -81,16 +86,8 @@ X_test = torch.tensor(X_test, dtype=floating_point)
 """----------------------------------------------------------------------------
 Sparse GP
 """
-import gpytorch
-from gpytorch.models import ExactGP
-from gpytorch.likelihoods import GaussianLikelihood
-from gpytorch.distributions import MultivariateNormal
-from gpytorch.means import ConstantMean
-from gpytorch.mlls import ExactMarginalLogLikelihood
-from gpytorch.kernels import InducingPointKernel, ScaleKernel, RBFKernel as RBF
-
 # Convert data to torch tensors to input inducing points
-inducing_points = X_train[::200, :]
+inducing_points = X_train[::60, :].clone()
 
 likelihood = GaussianLikelihood()
 
@@ -123,6 +120,12 @@ gp = SparseGP(X_train, y_train, likelihood, covar_module, 0.06)
 # initialise kernel parameters
 gp.covar_module.base_kernel.base_kernel.lengthscale = torch.tensor(lss)
 
+# Print initial kernel parameters
+print("Initial kernel parameters:")
+initial_hyper = gp.covar_module.base_kernel.base_kernel.lengthscale
+print("Lengthscale:", initial_hyper)
+print("Outputscale:", gp.covar_module.base_kernel.outputscale.item())
+
 # Train model
 start_time = time.time()
 gp.train()
@@ -139,6 +142,14 @@ for count in range(training_iterations):
     loss.backward()
     optimizer.step()
 
+# Print initial kernel parameters
+print("Estimated kernel parameters:")
+estimated_hyper = gp.covar_module.base_kernel.base_kernel.lengthscale
+print("Lengthscale:", estimated_hyper)
+print("Outputscale:", gp.covar_module.base_kernel.outputscale.item())
+
+print('Equal?\n', np.all(list(initial_hyper == estimated_hyper)))
+
 # Predictions
 gp.eval()
 likelihood.eval()
@@ -154,73 +165,92 @@ with torch.no_grad(), gpytorch.settings.fast_pred_var():
 PLOT
 """
 
-def get_z_indices(x, inducing_inputs):
-    indices = np.zeros(len(inducing_inputs), dtype=int)
-    for i, induced in enumerate(inducing_inputs):
-        closest_idx = np.argmin(np.linalg.norm(x - induced, axis=1))
-        indices[i] = closest_idx
-        if i < 5:
-            print(f"i: {i}, closest-indx: {closest_idx}")
-    return indices
+# def get_z_indices(x, inducing_inputs):
+#     indices = np.zeros(len(inducing_inputs), dtype=int)
+#     for i, induced in enumerate(inducing_inputs):
+#         closest_idx = np.argmin(np.linalg.norm(x - induced, axis=1))
+#         indices[i] = closest_idx
+#         if i < 5:
+#             print(f"i: {i}, closest-indx: {closest_idx}")
+#     return indices
 
-_z_induced = gp.covar_module.inducing_points.detach().numpy()
-_z_indices = get_z_indices(X_train.numpy(), _z_induced)
+# def get_z_indices(x, inducing_inputs):
+#     indices = np.zeros(len(inducing_inputs), dtype=int)
+#     for i, induced in enumerate(inducing_inputs):
+#         # Find the index of the closest point
+#         closest_idx = np.argmin(np.linalg.norm(x - induced, axis=1))
+#         indices[i] = closest_idx
+#     return 
 
-# common = set(X_train.numpy()).intersection(set(_z_induced))
-print(np.all(inducing_points.numpy()==_z_induced))
-print('Size X-induced: ', np.shape(_z_induced))
-# print('indices-induced: ', np.shape(_z_indices))
-# print(_z_indices)
-# print('caca: ', np.argmin(np.abs(X_train.numpy() - _z_induced[6])))
+# Calculate initial indices
+initial_z_indices = np.arange(0, len(X_train.numpy()), 60)
+print("Initial Inducing Points Indices:", initial_z_indices)
 
+# Convert to numpy arrays
+X_train_np = X_train.numpy()
+_z_induced_np = gp.covar_module.inducing_points.detach().numpy()
 
-#-----------------------------------------------------------------------------
-# REGRESSION PLOT
-#-----------------------------------------------------------------------------
-fig, ax = plt.subplots()
+# Find the indices of the closest points
+# Find the indices of the closest points using np.isclose
+_z_indices = []
+for induced in _z_induced_np:
+    idx = np.where(np.all(np.isclose(X_train_np, induced, atol=1e-6), axis=1))[0]
+    if idx.size > 0:
+        _z_indices.append(idx[0])
 
-# Increase the size of the axis numbers
-plt.rcdefaults()
-plt.rc('xtick', labelsize=14)
-plt.rc('ytick', labelsize=14)
-fig.autofmt_xdate()
+print("\nEstimated Inducing Points Indices:", _z_indices)
 
-ax.fill_between(date_time,
-                mu + 2*stds, mu - 2*stds,
-                alpha=0.5, color='lightcoral',
-                label='3$\\sigma$')
-# ax.plot(date_time, y_raw, color='grey', label='Raw')
-# ax.plot(date_time, y_rect, color='blue', label='Filtered')
-ax.plot(date_time, y_nonstand, color='green', label='Val')
-ax.plot(date_time, mu, color='red', label='GP')
-plt.axvline(date_time[end_train-1], linestyle='--', linewidth=3,
-            color='black')
-ax.set_xlabel(" Date-time", fontsize=14)
-ax.set_ylabel(" Fault density", fontsize=14)
-plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
+# Compare the two sets of indices
+same_indices = np.array_equal(initial_z_indices, _z_indices)
+print("\nAre initial and estimated indices the same?", same_indices)
+
+# #-----------------------------------------------------------------------------
+# # REGRESSION PLOT
+# #-----------------------------------------------------------------------------
+# fig, ax = plt.subplots()
+
+# # Increase the size of the axis numbers
+# plt.rcdefaults()
+# plt.rc('xtick', labelsize=14)
+# plt.rc('ytick', labelsize=14)
+# fig.autofmt_xdate()
+
+# ax.fill_between(date_time,
+#                 mu + 2*stds, mu - 2*stds,
+#                 alpha=0.5, color='lightcoral',
+#                 label='3$\\sigma$')
+# # ax.plot(date_time, y_raw, color='grey', label='Raw')
+# # ax.plot(date_time, y_rect, color='blue', label='Filtered')
+# ax.plot(date_time, y_nonstand, color='green', label='Val')
+# ax.plot(date_time, mu, color='red', label='GP')
+# plt.axvline(date_time[end_train-1], linestyle='--', linewidth=3,
+#             color='black')
+# ax.set_xlabel(" Date-time", fontsize=14)
+# ax.set_ylabel(" Fault density", fontsize=14)
+# plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
+
+# # ax.vlines(
+# #     x=date_time[::10],
+# #     ymin=-0.5,
+# #     ymax=y_train.max().item(),
+# #     alpha=0.3,
+# #     linewidth=1.5,
+# #     ls='--',
+# #     label="z0",
+# #     color='grey'
+# # )
 
 # ax.vlines(
-#     x=date_time[::10],
-#     ymin=-0.5,
+#     # Sparse clean data
+#     x=date_time[_z_indices],
+#     ymin=-2*stds.min(),
 #     ymax=y_train.max().item(),
-#     alpha=0.3,
+#     alpha=0.4,
 #     linewidth=1.5,
-#     ls='--',
-#     label="z0",
-#     color='grey'
+#     label="z*",
+#     color='orange'
 # )
-
-ax.vlines(
-    # Sparse clean data
-    x=date_time[_z_indices],
-    ymin=-2*stds.min(),
-    ymax=y_train.max().item(),
-    alpha=0.4,
-    linewidth=1.5,
-    label="z*",
-    color='orange'
-)
-ax.set_xlabel(" Date-time", fontsize=14)
-ax.set_ylabel(" Fault density", fontsize=14)
-plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
-plt.show()
+# ax.set_xlabel(" Date-time", fontsize=14)
+# ax.set_ylabel(" Fault density", fontsize=14)
+# plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
+# plt.show()
