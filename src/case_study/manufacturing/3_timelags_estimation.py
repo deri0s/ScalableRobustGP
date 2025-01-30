@@ -87,7 +87,8 @@ X_test = torch.tensor(X_test, dtype=floating_point)
 Sparse GP
 """
 # Convert data to torch tensors to input inducing points
-inducing_points = X_train[::60, :].clone()
+jump = 10
+inducing_points = X_train[::jump, :].clone()
 
 likelihood = GaussianLikelihood()
 
@@ -160,85 +161,102 @@ with torch.no_grad(), gpytorch.settings.fast_pred_var():
     pred_mean = observed_pred.mean
     mu = scaler.inverse_transform(pred_mean.unsqueeze(1))[:,0]
     stds = scaler.inverse_transform(observed_pred.stddev.unsqueeze(1))[:,0]
+    lower_stand, upper_stand = observed_pred.confidence_region()
+    lower = scaler.inverse_transform(lower_stand.unsqueeze(1))[:,0]
+    upper = scaler.inverse_transform(upper_stand.unsqueeze(1))[:,0]
+
 
 """--------------------------------------------------------------------------
 PLOT
 """
 
-# def get_z_indices(x, inducing_inputs):
-#     indices = np.zeros(len(inducing_inputs), dtype=int)
-#     for i, induced in enumerate(inducing_inputs):
-#         closest_idx = np.argmin(np.linalg.norm(x - induced, axis=1))
-#         indices[i] = closest_idx
-#         if i < 5:
-#             print(f"i: {i}, closest-indx: {closest_idx}")
-#     return indices
-
-# def get_z_indices(x, inducing_inputs):
-#     indices = np.zeros(len(inducing_inputs), dtype=int)
-#     for i, induced in enumerate(inducing_inputs):
-#         # Find the index of the closest point
-#         closest_idx = np.argmin(np.linalg.norm(x - induced, axis=1))
-#         indices[i] = closest_idx
-#     return 
-
 # Calculate initial indices
-initial_z_indices = np.arange(0, len(X_train.numpy()), 60)
-print("Initial Inducing Points Indices:", initial_z_indices)
+initial_z_indices = np.arange(0, len(X_train.numpy()), jump)
+# print("Initial Inducing Points Indices:", initial_z_indices)
 
 # Convert to numpy arrays
 X_train_np = X_train.numpy()
-_z_induced_np = gp.covar_module.inducing_points.detach().numpy()
+_z_induced = gp.covar_module.inducing_points.detach()
 
-# Find the indices of the closest points
-# Find the indices of the closest points using np.isclose
-_z_indices = []
-for induced in _z_induced_np:
-    idx = np.where(np.all(np.isclose(X_train_np, induced, atol=1e-6), axis=1))[0]
-    if idx.size > 0:
-        _z_indices.append(idx[0])
+print('first initial induced: \n', inducing_points[0,0])
+print('\n60th d=1 x-train: \n', X_train[0:jump,0])
 
-print("\nEstimated Inducing Points Indices:", _z_indices)
+print('\n N-z: ', len(_z_induced))
 
-# Compare the two sets of indices
-same_indices = np.array_equal(initial_z_indices, _z_indices)
-print("\nAre initial and estimated indices the same?", same_indices)
+# print('\nfirst induced point: ', _z_induced[0,0])
+# print('\nx-train firs dim: ', X_train[0:30,0])
+# print('type: ', type(X_train), ' ', type(_z_induced))
 
-# #-----------------------------------------------------------------------------
-# # REGRESSION PLOT
-# #-----------------------------------------------------------------------------
-# fig, ax = plt.subplots()
+# indices = []
+# for d in range(D):
+#     if d == 0:
+#         temp = np.where(np.isclose(X_train[:,d], _z_induced[0,d], atol=1e-3))[0]
+#         indices = list(temp)
+#     else:
+#         temp2 = np.where(np.isclose(X_train[:,d], _z_induced[0,d], atol=1e-3))[0]
+#         temp2 = list(temp2)
+#         indices.extend(temp2)
 
-# # Increase the size of the axis numbers
-# plt.rcdefaults()
-# plt.rc('xtick', labelsize=14)
-# plt.rc('ytick', labelsize=14)
-# fig.autofmt_xdate()
+# indices = []
+# for d in range(D):
+#     if d == 0:
+#         print('first initial induced: ', inducing_points[0,0])
+#         print('60th d=1 x-train: ', X_train[jump-5:jump+5,0])
+#         temp = np.where(np.isclose(X_train[:,d], inducing_points.numpy()[0,d], atol=1e-3))[0]
+#         indices = list(temp)
+#     else:
+#         temp2 = np.where(np.isclose(X_train[:,d], inducing_points.numpy()[0,d], atol=1e-3))[0]
+#         temp2 = list(temp2)
+#         indices.extend(temp2)
 
+# print(type(indices))
+# print(indices)
+# indx = max(set(indices), key=indices.count)
+# print('most repeated: ', indx)
+# print('first: ', min(indices))
+
+# # Compare the two sets of indices
+# same_indices = np.array_equal(initial_z_indices, _z_indices)
+# print("\nAre initial and estimated indices the same?", same_indices)
+
+#-----------------------------------------------------------------------------
+# REGRESSION PLOT
+#-----------------------------------------------------------------------------
+fig, ax = plt.subplots()
+
+# Increase the size of the axis numbers
+plt.rcdefaults()
+plt.rc('xtick', labelsize=14)
+plt.rc('ytick', labelsize=14)
+fig.autofmt_xdate()
+
+plt.fill_between(date_time,
+                 lower, upper,
+                 alpha=0.5, label='Confidence Interval')
 # ax.fill_between(date_time,
 #                 mu + 2*stds, mu - 2*stds,
 #                 alpha=0.5, color='lightcoral',
 #                 label='3$\\sigma$')
-# # ax.plot(date_time, y_raw, color='grey', label='Raw')
-# # ax.plot(date_time, y_rect, color='blue', label='Filtered')
-# ax.plot(date_time, y_nonstand, color='green', label='Val')
-# ax.plot(date_time, mu, color='red', label='GP')
-# plt.axvline(date_time[end_train-1], linestyle='--', linewidth=3,
-#             color='black')
-# ax.set_xlabel(" Date-time", fontsize=14)
-# ax.set_ylabel(" Fault density", fontsize=14)
-# plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
+# ax.plot(date_time, y_raw, color='grey', label='Raw')
+# ax.plot(date_time, y_rect, color='blue', label='Filtered')
+ax.plot(date_time, y_nonstand, color='green', label='Val')
+ax.plot(date_time, mu, color='red', label='GP')
+plt.axvline(date_time[end_train-1], linestyle='--', linewidth=3,
+            color='black')
+ax.set_xlabel(" Date-time", fontsize=14)
+ax.set_ylabel(" Fault density", fontsize=14)
+plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
 
-# # ax.vlines(
-# #     x=date_time[::10],
-# #     ymin=-0.5,
-# #     ymax=y_train.max().item(),
-# #     alpha=0.3,
-# #     linewidth=1.5,
-# #     ls='--',
-# #     label="z0",
-# #     color='grey'
-# # )
+# ax.vlines(
+#     x=date_time[::10],
+#     ymin=-0.5,
+#     ymax=y_train.max().item(),
+#     alpha=0.3,
+#     linewidth=1.5,
+#     ls='--',
+#     label="z0",
+#     color='grey'
+# )
 
 # ax.vlines(
 #     # Sparse clean data
@@ -250,7 +268,7 @@ print("\nAre initial and estimated indices the same?", same_indices)
 #     label="z*",
 #     color='orange'
 # )
-# ax.set_xlabel(" Date-time", fontsize=14)
-# ax.set_ylabel(" Fault density", fontsize=14)
-# plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
-# plt.show()
+ax.set_xlabel(" Date-time", fontsize=14)
+ax.set_ylabel(" Fault density", fontsize=14)
+plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
+plt.show()
