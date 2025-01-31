@@ -3,6 +3,7 @@ import time
 import gpytorch
 import pandas as pd
 import numpy as np
+from sklearn.metrics import mean_squared_error as mse
 from sklearn.preprocessing import StandardScaler as ss
 from matplotlib import pyplot as plt
 from gpytorch.models import ExactGP
@@ -39,13 +40,14 @@ def align_inputs(x_df, y_df, t_df):
     # X
     for name, lag in t_df.items():
         x_df[name] = x_df[name].shift(lag[0])
+
+    x_df.dropna(inplace=True)
     # y and date-time
     y_df = y_df.iloc[max_lag:].reset_index(drop=True)
-    return x_df, y_df
+
+    return x_df.reset_index(drop=True), y_df
 
 X_df, y_df = align_inputs(X_df, y_df, t_df)
-X_df.dropna(inplace=True)
-X_df = X_df.reset_index(drop=True)
 
 """---------------------------------------------------------------------------
     STANDARDISE TRAINING & TEST DATA
@@ -86,11 +88,11 @@ X_test = torch.tensor(X_test, dtype=floating_point)
 """----------------------------------------------------------------------------
 Sparse GP
 """
-# Convert data to torch tensors to input inducing points
+# ! Always clone
 step = 60
 inducing_points = X_train[::step, :].clone()
 
-# Ensure data is of shape [N, D]
+# ! Ensure data is of shape [N, D]
 print(X_train.shape)            # Should be [N_train, D]
 print(inducing_points.shape)    # Should be [N_train/step, D]
 print(X_test.shape)             # Should be [N_test, D]
@@ -106,7 +108,6 @@ se = ScaleKernel(RBF(ard_num_dims=X_train.shape[-1]))
 covar_module = InducingPointKernel(se,
                                    inducing_points=inducing_points,
                                    likelihood=likelihood)
-lss = [1.83, 0.318, 603, 0.651, 5.87e+04, 3.0, 1.17, 1.2e+03, 4.63, 0.25, 1.19e+04, 52.2, 663, 17.3]
 
 class SparseGP(ExactGP):
     def __init__(self, train_x, train_y, likelihood, kernel, noise_var):
@@ -120,16 +121,74 @@ class SparseGP(ExactGP):
         covar_x = self.covar_module(x)
         return MultivariateNormal(mean_x, covar_x)
 
-gp = SparseGP(X_train, y_train, likelihood, covar_module, 0.06)
-# initialise kernel parameters
-gp.covar_module.base_kernel.base_kernel.lengthscale = torch.tensor(lss)
 
-# Print initial kernel parameters
-print("\nInitial kernel parameters:")
-print("Outputscale:", gp.covar_module.base_kernel.outputscale.item())
+N_sim = 100
+os_list = []
+ls_list = []
+mae_list = []
+mse_list = []
+print('\n')
+
+for i in range(N_sim):
+    print(f'Sim: {i}/{N_sim}')
+    os = np.random.uniform(low=0.01, high=0.1)
+    ls = np.random.uniform(low=0.1, high=100, size=D)
+
+    # GP object
+    gp = SparseGP(X_train, y_train, likelihood, covar_module, os)
+    gp.covar_module.base_kernel.base_kernel.lengthscale = torch.tensor(ls)
+
+    # Train model
+    gp.train()
+    gp.likelihood.train()
+
+    optimizer = torch.optim.Adam(gp.parameters(), lr=0.01)
+    mll = ExactMarginalLogLikelihood(likelihood, gp)
+
+    training_iterations = 100
+    for count in range(training_iterations):
+        optimizer.zero_grad()
+        output = gp(X_train)
+        loss = -mll(output, y_train)
+        loss.backward()
+        optimizer.step()
+
+    # Predictions
+    gp.eval()
+    likelihood.eval()
+    with torch.no_grad(), gpytorch.settings.fast_pred_var():
+        observed_pred = likelihood(gp(X_test))
+
+        # Unormalise predictions
+        pred_mean = observed_pred.mean
+        mu = scaler.inverse_transform(pred_mean.unsqueeze(1))[:,0]
+        mae = mse(mu, y_nonstand)
+
+    # collect results
+    os_list.append(os)
+    ls_list.append(ls)
+    mae_list.append(mae)
+
+"""--------------------------------------------------------------------------
+    BEST HYPERPARAMETER CONFIGURATION
+"""
+
+# create dictionary with the obtained results
+d = {'outputscale': os_list,
+     'lengthscale': ls_list,
+     'mae': mae_list}
+
+df_sim = pd.DataFrame(d)
+indx = df_sim[df_sim.mae == df_sim.mae.min()].index
+
+opt_os = df_sim.outputscale[indx]
+opt_ls = df_sim.lengthscale[indx]
+
+# GP object
+gp = SparseGP(X_train, y_train, likelihood, covar_module, os)
+gp.covar_module.base_kernel.base_kernel.lengthscale = torch.tensor(ls)
 
 # Train model
-start_time = time.time()
 gp.train()
 gp.likelihood.train()
 
@@ -143,12 +202,6 @@ for count in range(training_iterations):
     loss = -mll(output, y_train)
     loss.backward()
     optimizer.step()
-end_time = time.time() - start_time
-
-print(f'\nTraining time: {end_time} ms')
-
-print("\nEstimated kernel parameters")
-print("Outputscale:", gp.covar_module.base_kernel.outputscale.item())
 
 # *Induced points
 init_z_indices = np.arange(0, len(X_train.numpy()), step)
@@ -163,8 +216,7 @@ for z in _z:
     _z_indices.append(closest_index)
 
 # check the z0 and z* are not the same
-print('\nInputs induced? ',
-      ~np.all(list(init_z_indices == _z_indices)))
+assert ~np.all(list(init_z_indices == _z_indices)), 'induced not trained'
 
 # Predictions
 gp.eval()
@@ -179,6 +231,8 @@ with torch.no_grad(), gpytorch.settings.fast_pred_var():
     lower_stand, upper_stand = observed_pred.confidence_region()
     lower = scaler.inverse_transform(lower_stand.unsqueeze(1))[:,0]
     upper = scaler.inverse_transform(upper_stand.unsqueeze(1))[:,0]
+
+print('MSE: ', mse(mu, y_nonstand))
 
 """--------------------------------------------------------------------------
 PLOT
