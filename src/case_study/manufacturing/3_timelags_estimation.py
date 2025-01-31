@@ -87,9 +87,18 @@ X_test = torch.tensor(X_test, dtype=floating_point)
 Sparse GP
 """
 # Convert data to torch tensors to input inducing points
-jump = 10
-inducing_points = X_train[::jump, :].clone()
+step = 60
+inducing_points = X_train[::step, :].clone()
 
+# Ensure data is of shape [N, D]
+print(X_train.shape)            # Should be [N_train, D]
+print(inducing_points.shape)    # Should be [N_train/step, D]
+print(X_test.shape)             # Should be [N_test, D]
+print(y_train.shape)            # Should be [N_train]
+
+assert inducing_points[2, 0] == X_train[step+step, 0], 'Init induced not the same as in X_train'
+
+# Model
 likelihood = GaussianLikelihood()
 
 se = ScaleKernel(RBF(ard_num_dims=X_train.shape[-1]))
@@ -110,21 +119,13 @@ class SparseGP(ExactGP):
         mean_x = self.mean_module(x)
         covar_x = self.covar_module(x)
         return MultivariateNormal(mean_x, covar_x)
-    
-
-# Ensure data is of shape [N, D]
-print(X_train.shape)  # Should be [N_train, D]
-print(y_train.shape)  # Should be [N_train]
-print(X_test.shape)   # Should be [N_test, D]
 
 gp = SparseGP(X_train, y_train, likelihood, covar_module, 0.06)
 # initialise kernel parameters
 gp.covar_module.base_kernel.base_kernel.lengthscale = torch.tensor(lss)
 
 # Print initial kernel parameters
-print("Initial kernel parameters:")
-initial_hyper = gp.covar_module.base_kernel.base_kernel.lengthscale
-print("Lengthscale:", initial_hyper)
+print("\nInitial kernel parameters:")
 print("Outputscale:", gp.covar_module.base_kernel.outputscale.item())
 
 # Train model
@@ -142,14 +143,28 @@ for count in range(training_iterations):
     loss = -mll(output, y_train)
     loss.backward()
     optimizer.step()
+end_time = time.time() - start_time
 
-# Print initial kernel parameters
-print("Estimated kernel parameters:")
-estimated_hyper = gp.covar_module.base_kernel.base_kernel.lengthscale
-print("Lengthscale:", estimated_hyper)
+print(f'\nTraining time: {end_time} ms')
+
+print("\nEstimated kernel parameters")
 print("Outputscale:", gp.covar_module.base_kernel.outputscale.item())
 
-print('Equal?\n', np.all(list(initial_hyper == estimated_hyper)))
+# *Induced points
+init_z_indices = np.arange(0, len(X_train.numpy()), step)
+
+# Make sure the _z (induced inputs) are a subset of the X_train dataset
+_z = gp.covar_module.inducing_points.detach()
+
+_z_indices = []
+for z in _z:
+    distances = torch.norm(X_train - z, dim=1)
+    closest_index = torch.argmin(distances).item()
+    _z_indices.append(closest_index)
+
+# check the z0 and z* are not the same
+print('\nInputs induced? ',
+      ~np.all(list(init_z_indices == _z_indices)))
 
 # Predictions
 gp.eval()
@@ -165,60 +180,9 @@ with torch.no_grad(), gpytorch.settings.fast_pred_var():
     lower = scaler.inverse_transform(lower_stand.unsqueeze(1))[:,0]
     upper = scaler.inverse_transform(upper_stand.unsqueeze(1))[:,0]
 
-
 """--------------------------------------------------------------------------
 PLOT
 """
-
-# Calculate initial indices
-initial_z_indices = np.arange(0, len(X_train.numpy()), jump)
-# print("Initial Inducing Points Indices:", initial_z_indices)
-
-# Convert to numpy arrays
-X_train_np = X_train.numpy()
-_z_induced = gp.covar_module.inducing_points.detach()
-
-print('first initial induced: \n', inducing_points[0,0])
-print('\n60th d=1 x-train: \n', X_train[0:jump,0])
-
-print('\n N-z: ', len(_z_induced))
-
-# print('\nfirst induced point: ', _z_induced[0,0])
-# print('\nx-train firs dim: ', X_train[0:30,0])
-# print('type: ', type(X_train), ' ', type(_z_induced))
-
-# indices = []
-# for d in range(D):
-#     if d == 0:
-#         temp = np.where(np.isclose(X_train[:,d], _z_induced[0,d], atol=1e-3))[0]
-#         indices = list(temp)
-#     else:
-#         temp2 = np.where(np.isclose(X_train[:,d], _z_induced[0,d], atol=1e-3))[0]
-#         temp2 = list(temp2)
-#         indices.extend(temp2)
-
-# indices = []
-# for d in range(D):
-#     if d == 0:
-#         print('first initial induced: ', inducing_points[0,0])
-#         print('60th d=1 x-train: ', X_train[jump-5:jump+5,0])
-#         temp = np.where(np.isclose(X_train[:,d], inducing_points.numpy()[0,d], atol=1e-3))[0]
-#         indices = list(temp)
-#     else:
-#         temp2 = np.where(np.isclose(X_train[:,d], inducing_points.numpy()[0,d], atol=1e-3))[0]
-#         temp2 = list(temp2)
-#         indices.extend(temp2)
-
-# print(type(indices))
-# print(indices)
-# indx = max(set(indices), key=indices.count)
-# print('most repeated: ', indx)
-# print('first: ', min(indices))
-
-# # Compare the two sets of indices
-# same_indices = np.array_equal(initial_z_indices, _z_indices)
-# print("\nAre initial and estimated indices the same?", same_indices)
-
 #-----------------------------------------------------------------------------
 # REGRESSION PLOT
 #-----------------------------------------------------------------------------
@@ -230,16 +194,10 @@ plt.rc('xtick', labelsize=14)
 plt.rc('ytick', labelsize=14)
 fig.autofmt_xdate()
 
-plt.fill_between(date_time,
-                 lower, upper,
-                 alpha=0.5, label='Confidence Interval')
-# ax.fill_between(date_time,
-#                 mu + 2*stds, mu - 2*stds,
-#                 alpha=0.5, color='lightcoral',
-#                 label='3$\\sigma$')
-# ax.plot(date_time, y_raw, color='grey', label='Raw')
-# ax.plot(date_time, y_rect, color='blue', label='Filtered')
-ax.plot(date_time, y_nonstand, color='green', label='Val')
+plt.fill_between(date_time, lower, upper,
+                 alpha=0.5, color='lightcoral',
+                 label='2$\\sigma$')
+ax.plot(date_time, y_nonstand, '*', color='green', label='Val')
 ax.plot(date_time, mu, color='red', label='GP')
 plt.axvline(date_time[end_train-1], linestyle='--', linewidth=3,
             color='black')
@@ -247,27 +205,27 @@ ax.set_xlabel(" Date-time", fontsize=14)
 ax.set_ylabel(" Fault density", fontsize=14)
 plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
 
-# ax.vlines(
-#     x=date_time[::10],
-#     ymin=-0.5,
-#     ymax=y_train.max().item(),
-#     alpha=0.3,
-#     linewidth=1.5,
-#     ls='--',
-#     label="z0",
-#     color='grey'
-# )
+ax.vlines(
+    x=date_time[::step],
+    ymin=-2*stds.min(),
+    ymax=y_train.max().item(),
+    alpha=0.3,
+    linewidth=1.5,
+    ls='--',
+    label="z0",
+    color='grey'
+)
 
-# ax.vlines(
-#     # Sparse clean data
-#     x=date_time[_z_indices],
-#     ymin=-2*stds.min(),
-#     ymax=y_train.max().item(),
-#     alpha=0.4,
-#     linewidth=1.5,
-#     label="z*",
-#     color='orange'
-# )
+# Induced points
+ax.vlines(
+    x=date_time[_z_indices],
+    ymin=-2*stds.min(),
+    ymax=y_train.max().item(),
+    alpha=0.4,
+    linewidth=1.5,
+    label="z*",
+    color='orange'
+)
 ax.set_xlabel(" Date-time", fontsize=14)
 ax.set_ylabel(" Fault density", fontsize=14)
 plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
