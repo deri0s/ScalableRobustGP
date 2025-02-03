@@ -9,7 +9,7 @@ import numpy as np
 """
 
 # NSG post processes data location
-file = 'timelags_varying_max_lag.xlsx'
+file = 'timelags_RandomForest.xlsx'
 
 # Training df
 t_df = pd.read_excel(file, sheet_name='timelags')

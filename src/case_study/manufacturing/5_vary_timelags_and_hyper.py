@@ -90,154 +90,159 @@ def align_inputs(x_df, y_df, t_series):
 
     return x_df.reset_index(drop=True), y_df
 
-
-# create lagged features
-# get the timelags estimated by the RF when max-lag = 3 days
-X_df, y_df = align_inputs(X_df, y_df, t0_df.iloc[1,:])
-
 """---------------------------------------------------------------------------
-    STANDARDISE TRAINING & TEST DATA
+    SIMULATIONS
 """
+for n in range(N_samples):
+    print(f'\nSim: {n}/{N_samples}')
 
-X = X_df.values
-y_nonstand, date_time = y_df.gp_pred.values, y_df.date_time.values
+    # create lagged features
+    X_df, y_df = align_inputs(X_df, y_df, t_df.iloc[n,:])
 
-N, D = np.shape(X)
-end_train = N - int(len(y_nonstand)*0.12)
+    """---------------------------------------------------------------------------
+        STANDARDISE TRAINING & TEST DATA
+    """
 
-# make sure X and y are the same size
-assert N - int(len(X)*0.12) == N - int(len(y_nonstand)*0.12), 'Size of X and y are not the same'
+    X = X_df.values
+    y_nonstand, date_time = y_df.gp_pred.values, y_df.date_time.values
 
-X_train_np = X[0:end_train]
-date_train = date_time[0:end_train]
-N_train = len(X_train_np)
-y_train_nonstand = y_nonstand[0:end_train]
+    N, D = np.shape(X)
+    end_train = N - int(len(y_nonstand)*0.12)
 
-X_test = X[0:N]
-date_time = date_time[0:N]
+    # make sure X and y are the same size
+    assert N - int(len(X)*0.12) == N - int(len(y_nonstand)*0.12), 'Size of X and y are not the same'
 
-assert len(X_train_np) == len(y_train_nonstand), 'X-train and y-train length are not the same'
-assert len(X_test) == len(y_nonstand), 'X-test and y-test length are not the same'
+    X_train_np = X[0:end_train]
+    date_train = date_time[0:end_train]
+    N_train = len(X_train_np)
+    y_train_nonstand = y_nonstand[0:end_train]
 
-# Standardise outputs
-y_train = y_train_nonstand.reshape(-1,1)
-scaler = ss()
-scaler.fit(y_train)
-y_norm_np = scaler.transform(y_train)
+    X_test = X[0:N]
+    date_time = date_time[0:N]
 
-# Convert data to torch tensors
-floating_point = torch.float64
-X_train = torch.tensor(X_train_np, dtype=floating_point)
-y_train = torch.tensor(y_norm_np, dtype=floating_point).squeeze()
-X_test = torch.tensor(X_test, dtype=floating_point)
+    assert len(X_train_np) == len(y_train_nonstand), 'X-train and y-train length are not the same'
+    assert len(X_test) == len(y_nonstand), 'X-test and y-test length are not the same'
 
-"""----------------------------------------------------------------------------
-Sparse GP
-"""
-# ! Always clone
-step = 60
-inducing_points = X_train[::step, :].clone()
+    # Standardise outputs
+    y_train = y_train_nonstand.reshape(-1,1)
+    scaler = ss()
+    scaler.fit(y_train)
+    y_norm_np = scaler.transform(y_train)
 
-# ! Ensure data is of shape [N, D]
-# print(X_train.shape)            # Should be [N_train, D]
-# print(inducing_points.shape)    # Should be [N_train/step, D]
-# print(X_test.shape)             # Should be [N_test, D]
-# print(y_train.shape)            # Should be [N_train]
+    # Convert data to torch tensors
+    floating_point = torch.float64
+    X_train = torch.tensor(X_train_np, dtype=floating_point)
+    y_train = torch.tensor(y_norm_np, dtype=floating_point).squeeze()
+    X_test = torch.tensor(X_test, dtype=floating_point)
 
-assert inducing_points[2, 0] == X_train[step+step, 0], 'Init induced not the same as in X_train'
+    """----------------------------------------------------------------------------
+    Sparse GP
+    """
+    # ! Always clone
+    step = 60
+    inducing_points = X_train[::step, :].clone()
 
-# Model
-likelihood = GaussianLikelihood()
+    # ! Ensure data is of shape [N, D]
+    # print(X_train.shape)            # Should be [N_train, D]
+    # print(inducing_points.shape)    # Should be [N_train/step, D]
+    # print(X_test.shape)             # Should be [N_test, D]
+    # print(y_train.shape)            # Should be [N_train]
 
-se = ScaleKernel(RBF(ard_num_dims=X_train.shape[-1]))
+    print(f'inducing shape: {inducing_points.shape}')
+    assert inducing_points[2, 0] == X_train[step+step, 0], 'Init induced not the same as in X_train'
 
-covar_module = InducingPointKernel(se,
-                                inducing_points=inducing_points,
-                                likelihood=likelihood)
+    # Model
+    likelihood = GaussianLikelihood()
 
-class SparseGP(ExactGP):
-    def __init__(self, train_x, train_y, likelihood, kernel, noise_var):
-        super(SparseGP, self).__init__(train_x, train_y, likelihood)
-        likelihood.noise = noise_var
-        self.mean_module = ConstantMean()
-        self.covar_module = kernel
+    se = ScaleKernel(RBF(ard_num_dims=X_train.shape[-1]))
 
-    def forward(self, x):
-        mean_x = self.mean_module(x)
-        covar_x = self.covar_module(x)
-        return MultivariateNormal(mean_x, covar_x)
+    covar_module = InducingPointKernel(se,
+                                    inducing_points=inducing_points,
+                                    likelihood=likelihood)
 
-N_sim = 500
-os_list = []
-ls_list = []
-nv_list = []
-mse_list = []
-random = True
+    class SparseGP(ExactGP):
+        def __init__(self, train_x, train_y, likelihood, kernel, noise_var):
+            super(SparseGP, self).__init__(train_x, train_y, likelihood)
+            likelihood.noise = noise_var
+            self.mean_module = ConstantMean()
+            self.covar_module = kernel
 
-for i in range(N_sim):
-    print(f'Hyperparameter simulation: {i}/{N_sim}')
+        def forward(self, x):
+            mean_x = self.mean_module(x)
+            covar_x = self.covar_module(x)
+            return MultivariateNormal(mean_x, covar_x)
 
-    if random:
-        ls = np.random.uniform(low=0.1, high=100, size=D)
-        nv = np.random.uniform(low=0.01, high=0.1)
-    
-    # GP object
-    gp = SparseGP(X_train, y_train, likelihood, covar_module, nv)
-    gp.covar_module.base_kernel.base_kernel.outputscale = 1
-    gp.covar_module.base_kernel.base_kernel.lengthscale = ls
+    N_sim = 5
+    os_list = []
+    ls_list = []
+    nv_list = []
+    mse_list = []
+    random = True
 
-    # Train model
-    gp.train()
-    gp.likelihood.train()
+    for i in range(N_sim):
+        print(f'Hyperparameter simulation: {i}/{N_sim}')
 
-    optimizer = torch.optim.Adam(gp.parameters(), lr=0.01)
-    mll = ExactMarginalLogLikelihood(likelihood, gp)
+        if random:
+            ls = np.random.uniform(low=0.1, high=100, size=D)
+            nv = np.random.uniform(low=0.01, high=0.1)
+        
+        # GP object
+        gp = SparseGP(X_train, y_train, likelihood, covar_module, nv)
+        gp.covar_module.base_kernel.base_kernel.outputscale = 1
+        gp.covar_module.base_kernel.base_kernel.lengthscale = ls
 
-    training_iterations = 100
-    for count in range(training_iterations):
-        optimizer.zero_grad()
-        output = gp(X_train)
-        loss = -mll(output, y_train)
-        loss.backward()
-        optimizer.step()
+        # Train model
+        gp.train()
+        gp.likelihood.train()
 
-    # get the estimated hyperparameters
-    os = gp.covar_module.base_kernel.outputscale.item()
-    ls = gp.covar_module.base_kernel.base_kernel.lengthscale
-    nv = likelihood.noise.item()
+        optimizer = torch.optim.Adam(gp.parameters(), lr=0.01)
+        mll = ExactMarginalLogLikelihood(likelihood, gp)
 
-    # Predictions
-    gp.eval()
-    likelihood.eval()
-    with torch.no_grad(), gpytorch.settings.fast_pred_var():
-        observed_pred = likelihood(gp(X_test))
+        training_iterations = 100
+        for count in range(training_iterations):
+            optimizer.zero_grad()
+            output = gp(X_train)
+            loss = -mll(output, y_train)
+            loss.backward()
+            optimizer.step()
 
-        # Unormalise predictions
-        pred_mean = observed_pred.mean
-        mu = scaler.inverse_transform(pred_mean.unsqueeze(1))[:,0]
-        mse = mean_squared_error(mu, y_nonstand)
+        # get the estimated hyperparameters
+        os = gp.covar_module.base_kernel.outputscale.item()
+        ls = gp.covar_module.base_kernel.base_kernel.lengthscale
+        nv = likelihood.noise.item()
 
-    # collect results
-    os_list.append(os)
-    ls_list.append(ls.squeeze(0).detach().numpy())
-    nv_list.append(nv)
-    mse_list.append(mse)
+        # Predictions
+        gp.eval()
+        likelihood.eval()
+        with torch.no_grad(), gpytorch.settings.fast_pred_var():
+            observed_pred = likelihood(gp(X_test))
 
-    # check error
-    if i > 1:
-        if mse_list[i] < mse_list[i-1]:
-            random = False
-        else:
-            random = True
+            # Unormalise predictions
+            pred_mean = observed_pred.mean
+            mu = scaler.inverse_transform(pred_mean.unsqueeze(1))[:,0]
+            mse = mean_squared_error(mu, y_nonstand)
+
+        # collect results
+        os_list.append(os)
+        ls_list.append(ls.squeeze(0).detach().numpy())
+        nv_list.append(nv)
+        mse_list.append(mse)
+
+        # check error
+        if i > 1:
+            if mse_list[i] < mse_list[i-1]:
+                random = False
+            else:
+                random = True
 
 """--------------------------------------------------------------------------
-BEST HYPERPARAMETER CONFIGURATION
+    BEST HYPERPARAMETER CONFIGURATION
 """
 
 d = {'outputscale': os_list,
-    'lengthscale': ls_list,
-    'noise_var': nv_list,
-    'mae': mse_list}
+     'lengthscale': ls_list,
+     'noise_var': nv_list,
+     'mae': mse_list}
 
 df_sim = pd.DataFrame(d)
 indx = df_sim[df_sim.mae == df_sim.mae.min()].index
@@ -285,13 +290,13 @@ likelihood.eval()
 with torch.no_grad(), gpytorch.settings.fast_pred_var():
     observed_pred = likelihood(gp(X_test))
 
-# Unormalise predictions
-pred_mean = observed_pred.mean
-mu = scaler.inverse_transform(pred_mean.unsqueeze(1))[:,0]
-stds = scaler.inverse_transform(observed_pred.stddev.unsqueeze(1))[:,0]
-lower_stand, upper_stand = observed_pred.confidence_region()
-lower = scaler.inverse_transform(lower_stand.unsqueeze(1))[:,0]
-upper = scaler.inverse_transform(upper_stand.unsqueeze(1))[:,0]
+    # Unormalise predictions
+    pred_mean = observed_pred.mean
+    mu = scaler.inverse_transform(pred_mean.unsqueeze(1))[:,0]
+    stds = scaler.inverse_transform(observed_pred.stddev.unsqueeze(1))[:,0]
+    lower_stand, upper_stand = observed_pred.confidence_region()
+    lower = scaler.inverse_transform(lower_stand.unsqueeze(1))[:,0]
+    upper = scaler.inverse_transform(upper_stand.unsqueeze(1))[:,0]
 
 print('MSE: ', mean_squared_error(mu, y_nonstand))
 
@@ -316,12 +321,12 @@ plt.rc('ytick', labelsize=14)
 fig.autofmt_xdate()
 
 plt.fill_between(date_time, lower, upper,
-                alpha=0.5, color='lightcoral',
-                label='2$\\sigma$')
+                 alpha=0.5, color='lightcoral',
+                 label='2$\\sigma$')
 ax.plot(date_time, y_nonstand, '*', color='green', label='Val')
 ax.plot(date_time, mu, color='red', label='GP')
 plt.axvline(date_time[end_train-1], linestyle='--', linewidth=3,
-        color='black')
+            color='black')
 ax.set_xlabel(" Date-time", fontsize=14)
 ax.set_ylabel(" Fault density", fontsize=14)
 plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
