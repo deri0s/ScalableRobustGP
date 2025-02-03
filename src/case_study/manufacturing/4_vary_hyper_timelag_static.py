@@ -3,7 +3,7 @@ import time
 import gpytorch
 import pandas as pd
 import numpy as np
-from sklearn.metrics import mean_squared_error as mse
+from sklearn.metrics import mean_squared_error
 from sklearn.preprocessing import StandardScaler as ss
 from matplotlib import pyplot as plt
 from gpytorch.models import ExactGP
@@ -121,22 +121,39 @@ class SparseGP(ExactGP):
         covar_x = self.covar_module(x)
         return MultivariateNormal(mean_x, covar_x)
 
-
-N_sim = 100
+N_sim = 20
+init_ls_list = []
+init_nv_list = []
 os_list = []
 ls_list = []
-mae_list = []
+nv_list = []
 mse_list = []
 print('\n')
 
+inner_count = 0
+random = True
+
 for i in range(N_sim):
     print(f'Sim: {i}/{N_sim}')
-    os = np.random.uniform(low=0.01, high=0.1)
-    ls = np.random.uniform(low=0.1, high=100, size=D)
+
+    # ls0 = np.random.uniform(low=0.1, high=100, size=D)
+    # nv0 = np.random.uniform(low=0.01, high=0.1)
+
+    if inner_count > 2 and random:
+        ls = np.random.uniform(low=0.1, high=100, size=D)
+        nv = np.random.uniform(low=0.01, high=0.1)
+    else:
+        ls0 = gp.covar_module.base_kernel.base_kernel.lengthscale
+        nv0 = likelihood.noise.item()
+
+    # collect initial hyperparameters
+    init_ls_list.append(ls0)
+    init_nv_list.append(nv0)
 
     # GP object
-    gp = SparseGP(X_train, y_train, likelihood, covar_module, os)
-    gp.covar_module.base_kernel.base_kernel.lengthscale = torch.tensor(ls)
+    gp = SparseGP(X_train, y_train, likelihood, covar_module, nv0)
+    gp.covar_module.base_kernel.base_kernel.outputscale = 1
+    gp.covar_module.base_kernel.base_kernel.lengthscale = ls0
 
     # Train model
     gp.train()
@@ -153,6 +170,11 @@ for i in range(N_sim):
         loss.backward()
         optimizer.step()
 
+    # get the estimated hyperparameters
+    os = gp.covar_module.base_kernel.outputscale.item()
+    ls = gp.covar_module.base_kernel.base_kernel.lengthscale
+    nv = likelihood.noise.item()
+
     # Predictions
     gp.eval()
     likelihood.eval()
@@ -162,31 +184,34 @@ for i in range(N_sim):
         # Unormalise predictions
         pred_mean = observed_pred.mean
         mu = scaler.inverse_transform(pred_mean.unsqueeze(1))[:,0]
-        mae = mse(mu, y_nonstand)
+        mse = mean_squared_error(mu, y_nonstand)
 
     # collect results
     os_list.append(os)
-    ls_list.append(ls)
-    mae_list.append(mae)
+    ls_list.append(ls.squeeze(0).detach().numpy())
+    nv_list.append(nv)
+    mse_list.append(mse)
 
 """--------------------------------------------------------------------------
     BEST HYPERPARAMETER CONFIGURATION
 """
+# print('nv-list: \n', np.shape(nv_list))
 
 # create dictionary with the obtained results
 d = {'outputscale': os_list,
      'lengthscale': ls_list,
-     'mae': mae_list}
+     'noise_var': nv_list,
+     'mae': mse_list}
 
 df_sim = pd.DataFrame(d)
 indx = df_sim[df_sim.mae == df_sim.mae.min()].index
 
-opt_os = df_sim.outputscale[indx]
-opt_ls = df_sim.lengthscale[indx]
+opt_ls = df_sim.lengthscale[indx].values[0]
+opt_nv = df_sim.noise_var[indx].values
 
 # GP object
-gp = SparseGP(X_train, y_train, likelihood, covar_module, os)
-gp.covar_module.base_kernel.base_kernel.lengthscale = torch.tensor(ls)
+gp = SparseGP(X_train, y_train, likelihood, covar_module, opt_nv)
+gp.covar_module.base_kernel.base_kernel.lengthscale = opt_ls
 
 # Train model
 gp.train()
@@ -232,11 +257,17 @@ with torch.no_grad(), gpytorch.settings.fast_pred_var():
     lower = scaler.inverse_transform(lower_stand.unsqueeze(1))[:,0]
     upper = scaler.inverse_transform(upper_stand.unsqueeze(1))[:,0]
 
-print('MSE: ', mse(mu, y_nonstand))
+print('MSE: ', mean_squared_error(mu, y_nonstand))
 
 """--------------------------------------------------------------------------
 PLOT
 """
+
+plt.figure()
+plt.plot(mse_list)
+plt.xlabel('iteration')
+plt.xlabel('MSE')
+
 #-----------------------------------------------------------------------------
 # REGRESSION PLOT
 #-----------------------------------------------------------------------------
