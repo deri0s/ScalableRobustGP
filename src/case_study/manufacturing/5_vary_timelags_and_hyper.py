@@ -93,6 +93,8 @@ def align_inputs(x_df, y_df, t_series):
 """---------------------------------------------------------------------------
     SIMULATIONS
 """
+# variable initialisation
+
 for n in range(N_samples):
     print(f'\nSim: {n}/{N_samples}')
 
