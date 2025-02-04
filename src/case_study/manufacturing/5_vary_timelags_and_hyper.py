@@ -55,7 +55,7 @@ X = np.zeros([N, D])
 """
 # read TIME LAGS description for the details of the following
 timelags_df = pd.DataFrame()
-N_samples = 5
+N_samples = 500
 units = 9
 
 # Initialise dictionary with the first input
@@ -79,6 +79,7 @@ t_df = pd.DataFrame(d)
 """
 
 def align_inputs(x_df, y_df, t_series):
+    # ! Always close/Deep copy
     xdeep = x_df.copy()
     ydeep = y_df.copy()
     max_lag = max(t_series)
@@ -114,7 +115,7 @@ class SparseGP(ExactGP):
     SIMULATIONS
 """
 # Timelags initialisation
-step = 40
+step = 200
 timelag_list = []
 scaler = ss()
 
@@ -128,6 +129,7 @@ nv_list = []
 mse_list = []
 random = True
 
+start_time = time.time()
 for n in range(N_samples):
     print(f'\nSim: {n}/{N_samples}')
 
@@ -164,7 +166,7 @@ for n in range(N_samples):
     X_test = torch.tensor(X_test, dtype=floating_point)
 
     """----------------------------------------------------------------------------
-    Sparse GP
+    SIMULATION
     """
     # ! Always clone
     inducing_points = X_train[::step, :].clone()
@@ -240,11 +242,13 @@ for n in range(N_samples):
                 else:
                     random = True
 
+sim_time = time.time() - start_time
+print(f'\nN = {int(N_samples*N_sim_hyper)} simulations in {sim_time} seconds')
+
 """--------------------------------------------------------------------------
     BEST HYPERPARAMETER CONFIGURATION
 """
-# print(f'init_ls: {np.shape(init_ls)}')
-# print(f'init_os: {np.shape(np.ones(N_samples))} m: {np.ones(N_samples)*N_sim_hyper}')
+
 d = {'step': step,
      'init_os': np.ones(int(N_samples*5)), 'init_ls': init_ls, 'init_nv': init_nv,
      'outputscale': os_list,
@@ -254,12 +258,7 @@ d = {'step': step,
 
 df_sim = pd.DataFrame(d)
 
-# save into spreadsheet
-df_best5 = df_sim.sort_values(by='mse').iloc[0:5, :]
-df_best5.to_excel('5_best_timelags_and_hyper.xlsx')
-
-print('lowest errors \n', df_sim.mse.sort_values()[0:5])
-
+# get index where the MSE is the lowest
 indx = df_sim[df_sim.mse == df_sim.mse.min()].index.values
 
 init_opt_ls = df_sim.init_ls[indx].values[0]
@@ -269,19 +268,18 @@ opt_nv = df_sim.noise_var[indx].values
 
 # create estimated time lag dataframe
 opt_timelags = timelag_list[indx[0]]
-opt_td = {(name for name in t_df.columns): opt_timelags}
-
-opt_td['init_ls'] = init_opt_ls
-opt_td['opt_ls'] = opt_ls
-opt_td['init_nv'] = np.ones(D)*init_opt_nv
-opt_td['opt_nv'] = np.ones(D)*opt_nv
-opt_td['step'] = np.ones(D)*step
-opt_td['MSE'] = np.ones(D)*mse
+opt_td = {'inputs': t_df.columns,
+          'timelags': opt_timelags,
+          'init_ls':  init_opt_ls,
+          'opt_ls': opt_ls,
+          'init_nv': np.ones(D)*init_opt_nv,
+          'opt_nv': np.ones(D)*opt_nv,
+          'step': np.ones(D)*step,
+          'MSE': np.ones(D)*mse}
 
 opt_timelags_df = pd.DataFrame(opt_td)
-opt_timelags_df.to_excel('5_best_timelags_and_hyper_full.xlsx')
+opt_timelags_df.to_excel('5_best_timelags_and_hyper.xlsx')
 
-print(f'\ninit_ls: \n {init_opt_ls}\ninit_nv: {init_opt_nv}')
 print('\nmse: ', df_sim.mse[indx].values)
 
 # GP object
