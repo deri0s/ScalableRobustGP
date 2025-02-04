@@ -31,50 +31,6 @@ N, D = np.shape(X_df.values)
 X = np.zeros([N, D])
 
 """---------------------------------------------------------------------------
-    TIME LAGS
-------------------------------------------------------------------------------
-
-    Generate random timelags sampled from a Uniform distribution whose min,
-    max values were obtained using a Random Forest approach.
-
-    # Preliminary analsysis
-    min_list = []
-    max_list = []
-
-    for col in t0_df.columns:
-        min_list.append(t0_df[col].values.min())
-        max_list.append(t0_df[col].values.max())
-
-    print(f'Min timelag: {min(min_list)}')
-    print(f'Max timelag: {max(max_list)} \n')
-
-    3 days into the future corresponds to 216 units. Therefore,
-    min - 8 = 2
-    max + 8 = 216
-    max allowed boundary is 8 units. Just in case I will use 9 units
-"""
-# read TIME LAGS description for the details of the following
-timelags_df = pd.DataFrame()
-N_samples = 10
-units = 9
-
-# Initialise dictionary with the first input
-minimum = np.min(t0_df[t0_df.columns[0]] - units)
-maximum = np.max(t0_df[t0_df.columns[0]] + units)
-
-d = {t0_df.columns[0]:np.random.randint(minimum, maximum, N_samples)}
-
-# add remaining inputs
-for i in range(1, len(t0_df.columns)):
-    minimum = np.min(t0_df[t0_df.columns[i]] - units)
-    maximum = np.max(t0_df[t0_df.columns[i]] + units)
-    d[t0_df.columns[i]] = np.random.randint(minimum,
-                                            maximum,
-                                            N_samples)
-    
-t_df = pd.DataFrame(d)
-
-"""---------------------------------------------------------------------------
     CREATE LAGGED FEATURES
 """
 
@@ -89,7 +45,6 @@ def align_inputs(x_df, y_df, t_series):
     y_df = y_df.iloc[max_lag:].reset_index(drop=True)
 
     return x_df.reset_index(drop=True), y_df
-
 
 # create lagged features
 # get the timelags estimated by the RF when max-lag = 3 days
@@ -134,8 +89,21 @@ X_test = torch.tensor(X_test, dtype=floating_point)
 """----------------------------------------------------------------------------
 Sparse GP
 """
+
+class SparseGP(ExactGP):
+    def __init__(self, train_x, train_y, likelihood, kernel, noise_var):
+        super(SparseGP, self).__init__(train_x, train_y, likelihood)
+        likelihood.noise = noise_var
+        self.mean_module = ConstantMean()
+        self.covar_module = kernel
+
+    def forward(self, x):
+        mean_x = self.mean_module(x)
+        covar_x = self.covar_module(x)
+        return MultivariateNormal(mean_x, covar_x)
+    
 # ! Always clone
-step = 60
+step = 40
 inducing_points = X_train[::step, :].clone()
 
 # ! Ensure data is of shape [N, D]
@@ -152,22 +120,13 @@ likelihood = GaussianLikelihood()
 se = ScaleKernel(RBF(ard_num_dims=X_train.shape[-1]))
 
 covar_module = InducingPointKernel(se,
-                                inducing_points=inducing_points,
-                                likelihood=likelihood)
+                                   inducing_points=inducing_points,
+                                   likelihood=likelihood)
 
-class SparseGP(ExactGP):
-    def __init__(self, train_x, train_y, likelihood, kernel, noise_var):
-        super(SparseGP, self).__init__(train_x, train_y, likelihood)
-        likelihood.noise = noise_var
-        self.mean_module = ConstantMean()
-        self.covar_module = kernel
+N_sim = 50
+init_ls = []
+init_nv = []
 
-    def forward(self, x):
-        mean_x = self.mean_module(x)
-        covar_x = self.covar_module(x)
-        return MultivariateNormal(mean_x, covar_x)
-
-N_sim = 500
 os_list = []
 ls_list = []
 nv_list = []
@@ -180,7 +139,14 @@ for i in range(N_sim):
     if random:
         ls = np.random.uniform(low=0.1, high=100, size=D)
         nv = np.random.uniform(low=0.01, high=0.1)
-    
+        # save initial hyperparameters
+        init_ls.append(ls)
+        init_nv.append(nv)
+    else:
+        # save initial hyperparameters
+        init_ls.append(ls.squeeze(0).detach().numpy())
+        init_nv.append(nv)
+
     # GP object
     gp = SparseGP(X_train, y_train, likelihood, covar_module, nv)
     gp.covar_module.base_kernel.base_kernel.outputscale = 1
@@ -234,20 +200,35 @@ for i in range(N_sim):
 BEST HYPERPARAMETER CONFIGURATION
 """
 
-d = {'outputscale': os_list,
-    'lengthscale': ls_list,
-    'noise_var': nv_list,
-    'mae': mse_list}
+d = {'step': step,
+     'init_os': np.ones(N_sim), 'init_ls': init_ls, 'init_nv': init_nv,
+     'outputscale': os_list,
+     'lengthscale': ls_list,
+     'noise_var': nv_list,
+     'mse': mse_list}
 
 df_sim = pd.DataFrame(d)
-indx = df_sim[df_sim.mae == df_sim.mae.min()].index
 
+# save into spreadsheet
+df_best5 = df_sim.sort_values(by='mse').iloc[0:5, :]
+df_best5.to_excel('4_RF_timelags_best_hyper.xlsx')
+
+print('lowest errors \n', df_sim.mse.sort_values()[0:5])
+
+indx = df_sim[df_sim.mse == df_sim.mse.min()].index
+
+init_opt_ls = df_sim.init_ls[indx].values[0]
+init_opt_nv = df_sim.init_nv[indx].values[0]
 opt_ls = df_sim.lengthscale[indx].values[0]
 opt_nv = df_sim.noise_var[indx].values
 
+print(f'\ninit_ls: \n {init_opt_ls}\ninit_nv: {init_opt_nv}')
+print('\nmse: ', df_sim.mse[indx].values)
+
 # GP object
-gp = SparseGP(X_train, y_train, likelihood, covar_module, opt_nv)
-gp.covar_module.base_kernel.base_kernel.lengthscale = opt_ls
+gp = SparseGP(X_train, y_train, likelihood, covar_module, init_opt_nv)
+gp.covar_module.base_kernel.base_kernel.outputscale = 1
+gp.covar_module.base_kernel.base_kernel.lengthscale = init_opt_ls
 
 # Train model
 gp.train()
