@@ -115,12 +115,12 @@ class SparseGP(ExactGP):
     SIMULATIONS
 """
 # Timelags initialisation
-step = 200
+step = 50
 timelag_list = []
 scaler = ss()
 
 # Hyper initialisation
-N_sim_hyper = 5
+N_sim_hyper = 150
 init_ls = []
 init_nv = []
 os_list = []
@@ -250,7 +250,7 @@ print(f'\nN = {int(N_samples*N_sim_hyper)} simulations in {sim_time} seconds')
 """
 
 d = {'step': step,
-     'init_os': np.ones(int(N_samples*5)), 'init_ls': init_ls, 'init_nv': init_nv,
+     'init_os': np.ones(int(N_samples*N_sim_hyper)), 'init_ls': init_ls, 'init_nv': init_nv,
      'outputscale': os_list,
      'lengthscale': ls_list,
      'noise_var': nv_list,
