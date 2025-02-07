@@ -22,7 +22,11 @@ file = 'validation_data.xlsx'
 # Training df
 X0_df  = pd.read_excel(file, sheet_name='X_stand')
 y0_df  = pd.read_excel(file, sheet_name='y_nonstand')
-t0_df = pd.read_excel('data_and_preprocessing/processed/timelags_RandomForest.xlsx')
+t0_df = pd.read_excel('data_and_preprocessing/processed/finetune_timelags.xlsx')
+
+# drop tweel position
+X0_df.drop(columns='9282 Tweel Position', inplace=True)
+t0_df.drop(columns='9282 Tweel Position', inplace=True)
 
 # Pre-Process training data
 N, D = np.shape(X0_df.values)
@@ -55,8 +59,8 @@ X = np.zeros([N, D])
 """
 # read TIME LAGS description for the details of the following
 timelags_df = pd.DataFrame()
-N_samples = 500
-units = 9
+N_samples = 200
+units = 2
 
 # Initialise dictionary with the first input
 minimum = np.min(t0_df[t0_df.columns[0]] - units)
@@ -115,12 +119,12 @@ class SparseGP(ExactGP):
     SIMULATIONS
 """
 # Timelags initialisation
-step = 50
+step = 60
 timelag_list = []
 scaler = ss()
 
 # Hyper initialisation
-N_sim_hyper = 150
+N_sim_hyper = 40
 init_ls = []
 init_nv = []
 os_list = []
@@ -263,6 +267,7 @@ indx = df_sim[df_sim.mse == df_sim.mse.min()].index.values
 
 init_opt_ls = df_sim.init_ls[indx].values[0]
 init_opt_nv = df_sim.init_nv[indx].values[0]
+opt_os = df_sim.outputscale[indx].values[0]
 opt_ls = df_sim.lengthscale[indx].values[0]
 opt_nv = df_sim.noise_var[indx].values
 
@@ -270,6 +275,7 @@ opt_nv = df_sim.noise_var[indx].values
 opt_timelags = timelag_list[indx[0]]
 opt_td = {'inputs': t_df.columns,
           'timelags': opt_timelags,
+          'opt_os': opt_os,
           'init_ls':  init_opt_ls,
           'opt_ls': opt_ls,
           'init_nv': np.ones(D)*init_opt_nv,
@@ -278,7 +284,7 @@ opt_td = {'inputs': t_df.columns,
           'MSE': np.ones(D)*mse}
 
 opt_timelags_df = pd.DataFrame(opt_td)
-opt_timelags_df.to_excel('5_best_timelags_and_hyper.xlsx')
+opt_timelags_df.to_excel('5_finetuned_without_tweel.xlsx')
 
 print('\nmse: ', df_sim.mse[indx].values)
 

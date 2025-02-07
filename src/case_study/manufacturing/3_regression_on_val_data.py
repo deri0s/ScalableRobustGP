@@ -22,7 +22,7 @@ file = 'validation_data.xlsx'
 # Training df
 X_df = pd.read_excel(file, sheet_name='X_stand')
 y_df = pd.read_excel(file, sheet_name='y_nonstand')
-t_df = pd.read_excel('data_and_preprocessing/processed/NSG_processed_data_14_inputs.xlsx',
+t_df = pd.read_excel('data_and_preprocessing/processed/final_timelags_.xlsx',
                      sheet_name='timelags')
 
 # Pre-Process training data
@@ -35,19 +35,40 @@ X = np.zeros([N, D])
     CREATE LAGGED FEATURES
 """
 
-def align_inputs(x_df, y_df, t_df):
-    max_lag = max(t_df.iloc[0,:])
+# def align_inputs(x_df, y_df, t_df):
+#     max_lag = max(t_df.iloc[0,:])
+#     # X
+#     for name, lag in t_df.items():
+#         x_df[name] = x_df[name].shift(lag[0])
+
+#     x_df.dropna(inplace=True)
+#     # y and date-time
+#     y_df = y_df.iloc[max_lag:].reset_index(drop=True)
+
+#     return x_df.reset_index(drop=True), y_df
+
+def align_inputs(x_df, y_df, t_series):
+    # ! Always close/Deep copy
+    xdeep = x_df.copy()
+    ydeep = y_df.copy()
+    max_lag = int(max(t_series))
+
     # X
-    for name, lag in t_df.items():
-        x_df[name] = x_df[name].shift(lag[0])
+    for name, lag in t_series.items():
+        # print(f'name: {name} val: {type(lag)}')
+        # print(f'name: {xdeep[name]}')
+        xdeep[name] = xdeep[name].shift(int(lag))
 
-    x_df.dropna(inplace=True)
+    xdeep.dropna(inplace=True)
+
     # y and date-time
-    y_df = y_df.iloc[max_lag:].reset_index(drop=True)
+    ydeep = ydeep.iloc[max_lag:].reset_index(drop=True)
 
-    return x_df.reset_index(drop=True), y_df
+    return xdeep.reset_index(drop=True), ydeep
 
-X_df, y_df = align_inputs(X_df, y_df, t_df)
+print(f'type: {type(t_df.iloc[6,:])} \n actual: \n{t_df.iloc[6,:]}')
+# Final time lags n = 6 
+X_df, y_df = align_inputs(X_df, y_df, t_df.iloc[6,:])
 
 """---------------------------------------------------------------------------
     STANDARDISE TRAINING & TEST DATA
@@ -108,7 +129,7 @@ se = ScaleKernel(RBF(ard_num_dims=X_train.shape[-1]))
 covar_module = InducingPointKernel(se,
                                    inducing_points=inducing_points,
                                    likelihood=likelihood)
-lss = [1.83, 0.318, 603, 0.651, 5.87e+04, 3.0, 1.17, 1.2e+03, 4.63, 0.25, 1.19e+04, 52.2, 663, 17.3]
+lss = [30, 0.318, 603, 0.651, 5.87e+04, 3.0, 1.17, 1.2e+03, 4.63, 0.25, 1.19e+04, 52.2, 663, 17.3]
 
 class SparseGP(ExactGP):
     def __init__(self, train_x, train_y, likelihood, kernel, noise_var):
@@ -122,7 +143,7 @@ class SparseGP(ExactGP):
         covar_x = self.covar_module(x)
         return MultivariateNormal(mean_x, covar_x)
 
-gp = SparseGP(X_train, y_train, likelihood, covar_module, 0.06)
+gp = SparseGP(X_train, y_train, likelihood, covar_module, 0.038)
 # initialise kernel parameters
 gp.covar_module.base_kernel.base_kernel.lengthscale = torch.tensor(lss)
 
