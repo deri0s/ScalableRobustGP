@@ -60,10 +60,10 @@ X = X_df.values
 y_nonstand, date_time = y_df.gp_pred.values, y_df.date_time.values
 
 N, D = np.shape(X)
-end_train = N - int(len(y_nonstand)*0.12)
+end_train = N - int(len(y_nonstand)*0.11)
 
 # make sure X and y are the same size
-assert N - int(len(X)*0.12) == N - int(len(y_nonstand)*0.12), 'Size of X and y are not the same'
+assert N - int(len(X)*0.11) == N - int(len(y_nonstand)*0.11), 'Size of X and y are not the same'
 
 X_train_np = X[0:end_train]
 date_train = date_time[0:end_train]
@@ -92,7 +92,7 @@ X_test = torch.tensor(X_test, dtype=floating_point)
 Sparse GP
 """
 # ! Always clone
-step = 60
+step = 10
 inducing_points = X_train[::step, :].clone()
 
 # ! Ensure data is of shape [N, D]
@@ -111,7 +111,8 @@ covar_module = InducingPointKernel(se,
                                    inducing_points=inducing_points,
                                    likelihood=likelihood)
 # lss = [30, 6, 0.15, 0.9, 28, 11, 10, 34, 93, 84, 80, 32.2, 190, 44]
-lss = [30, 0.318, 603, 0.651, 5.87e+04, 3.0, 1.17, 1.2e+03, 4.63, 0.25, 1.19e+04, 52.2, 663, 17.3]
+#lss = [30, 0.318, 603, 0.651, 5.87e+04, 3.0, 1.17, 1.2e+03, 4.63, 0.25, 1.19e+04, 52.2, 663, 17.3]
+lss = [30, 4, 28, 1.17, 84, 20, 1.17, 29, 4.63, 1.52, 37.78, 74, 663, 19.3]
 
 class SparseGP(ExactGP):
     def __init__(self, train_x, train_y, likelihood, kernel, noise_var):
@@ -125,9 +126,9 @@ class SparseGP(ExactGP):
         covar_x = self.covar_module(x)
         return MultivariateNormal(mean_x, covar_x)
 
-gp = SparseGP(X_train, y_train, likelihood, covar_module, 0.038)
+gp = SparseGP(X_train, y_train, likelihood, covar_module, 0.025)
 # initialise kernel parameters
-gp.covar_module.base_kernel.outputscale = 4
+gp.covar_module.base_kernel.outputscale = 1
 gp.covar_module.base_kernel.base_kernel.lengthscale = torch.tensor(lss)
 
 # Print initial kernel parameters
@@ -139,7 +140,7 @@ start_time = time.time()
 gp.train()
 gp.likelihood.train()
 
-optimizer = torch.optim.Adam(gp.parameters(), lr=0.01)
+optimizer = torch.optim.Adam(gp.parameters(), lr=0.05)
 mll = ExactMarginalLogLikelihood(likelihood, gp)
 
 training_iterations = 100
@@ -186,7 +187,8 @@ with torch.no_grad(), gpytorch.settings.fast_pred_var():
     lower = scaler.inverse_transform(lower_stand.unsqueeze(1))[:,0]
     upper = scaler.inverse_transform(upper_stand.unsqueeze(1))[:,0]
 
-print('MSE: ', mse(mu, y_nonstand))
+print('MSE (train - test): ', mse(mu, y_nonstand))
+print('MSE (test):         ', mse(mu[end_train:-1], y_nonstand[end_train:-1]))
 
 """--------------------------------------------------------------------------
 PLOT
