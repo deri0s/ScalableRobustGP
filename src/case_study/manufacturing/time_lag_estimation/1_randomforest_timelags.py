@@ -1,7 +1,6 @@
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.inspection import permutation_importance
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
 # Choose the scanner where the fault density data is read from

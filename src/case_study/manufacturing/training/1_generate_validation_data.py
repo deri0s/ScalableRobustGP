@@ -2,27 +2,24 @@ import pandas as pd
 import numpy as np
 import time
 from matplotlib import pyplot as plt
-from sklearn.preprocessing import StandardScaler as ss
-from case_study.manufacturing.data_and_preprocessing.raw import data_processing_methods as dpm
+from pathlib import Path
 
 """
 NSG data
-
-Choose:
-- NSG_processed_data.xlsx:           10 inpus
-- NSG_processed_data_14_inputs.xlsx: 14 inputs
 
 Do not adjust data for timelags.
 """
 
 # NSG post processes data location
-# file = 'data_and_preprocessing/processed/NSG_processed_data.xlsx'
-file = 'data_and_preprocessing/processed/NSG_processed_data_14_inputs.xlsx'
+ROOT_PATH = Path(__file__).resolve().parent.parent
+PROCESSED_PATH = ROOT_PATH / "data" / "processed"
+file = PROCESSED_PATH / 'NSG_processed_data.xlsx'
 
 # Training df
 X_df = pd.read_excel(file, sheet_name='X_stand')
 y_df = pd.read_excel(file, sheet_name='y')
 y_raw_df = pd.read_excel(file, sheet_name='y_raw')
+t_df = pd.read_excel(file, sheet_name='timelags')
 
 # Pre-Process training data
 X    = X_df.values
@@ -96,14 +93,6 @@ covar_module = InducingPointKernel(se,
                                    inducing_points=inducing_points,
                                    likelihood=likelihood)
 
-# 10 inputs
-# lss = [0.284, 1.54e+04, 0.48, 0.662, 2.79e+04, 337, 4.86e+04, 3.71e+04, 1.13, 0.25]
-# lss = [1e+05, 342, 516, 0.468, 0.25, 6.57e+04, 1.33e+03, 0.878, 1.07, 4.71e+03]
-# lss = [2.6, 0.963, 1e+05, 0.679, 1e+05, 5.25, 0.25, 4.05e+04, 2, 575]
-
-# 14 inputs
-# lss = [1.83, 0.318, 603, 0.651, 5.87e+04, 3.0, 1.17, 1.2e+03, 4.63, 0.25, 1.19e+04, 52.2, 663, 17.3]
-# lss = [2.83, 1.318, 603, 1.651, 5.87e+04, 3.0, 10.17, 1.2e+03, 4.63, 25, 1.19e+04, 52.2, 663, 17.3]
 lss = [1.83, 0.8, 603, 1.1, 5.87e+04, 3.0, 2.17, 1.2e+03, 4.63, 1, 1.19e+04, 52.2, 663, 17.3]
 start_time = time.time()
 sgp = DPSGP(X_train, y_train, init_K=7,
@@ -144,11 +133,12 @@ X_df = pd.DataFrame(dx)
 y_df = pd.DataFrame(d)
 
 # Define an Excel writer object and the target file
-writer = pd.ExcelWriter("validation_data.xlsx")
+writer = pd.ExcelWriter("validation_data_main.xlsx")
 
 # Save to spreadsheet
 X_df.to_excel(writer, sheet_name='X_stand', index=False)
 y_df.to_excel(writer, sheet_name='y_nonstand', index=False)
+t_df.to_excel(writer, sheet_name='timelags', index=False)
 writer._save()
 
 #-----------------------------------------------------------------------------

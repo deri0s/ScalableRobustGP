@@ -1,7 +1,24 @@
-import os
 import pandas as pd
 import numpy as np
 from pathlib import Path
+
+"""
+Normalise and standardise the model features
+Inputs: 
+- Input Post-Processing xlsx files
+
+Outputs:
+An xlsx file where the sheets are:
+- X_stand: Standardised inputs
+- X_norm:  Normalised inpus
+- y:       Conditioned (post-processed) furnace faults
+- y_raw:   Raw furnace faults
+- timelags:Input time lags
+"""
+
+ROOT_PATH = Path(__file__).resolve().parent.parent
+RAW_PATH = ROOT_PATH / "data" / "raw"
+PROCESSED_PATH = ROOT_PATH / "data" / "processed"
 
 # ----------------------------------------------------------------------------
 # USER OPTIONS
@@ -35,20 +52,15 @@ X_df, Y_df, Y_raw_df = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
 # Loop over available files of post-processed data
 for i in range(1, 5):
-    file_name = 'Input Post-Processing ' +str(i)+' '+scanner + '.xlsx'
+    file_name = str(RAW_PATH) + '/Input Post-Processing '+str(i)+' '+scanner+'.xlsx'
     X_df = X_df._append(pd.read_excel(file_name,
                                       sheet_name='input_data'))
     Y_df = Y_df._append(pd.read_excel(file_name,
                                       sheet_name='output_data'))
-    Y_raw_df = Y_raw_df._append(pd.read_excel(file_name,
-                                              sheet_name='raw_output_data'))
-
-# Extract time lags from final file
-T_df = pd.read_excel('Input Post-Processing 4 ISRA timelags.xlsx',
-                     sheet_name='time_lags')
+    Y_raw_df =Y_raw_df._append(pd.read_excel(file_name,
+                                             sheet_name='raw_output_data'))
 
 # Check data frames are the correct size and have the same column names
-assert np.all(X_df.columns == T_df.columns)
 assert len(X_df) == len(Y_df)
 assert len(Y_df) == len(Y_raw_df)
 
@@ -60,9 +72,17 @@ input_names = X_df.columns
 for name in input_names:
     if name not in to_retain:
         X_df.drop(columns=name, inplace=True)
-        T_df.drop(columns=name, inplace=True)
+
+# Extract time lags from final file (N-inputs = 14)
+T_df = pd.read_excel(str(PROCESSED_PATH) + '/final_timelags.xlsx',
+                     sheet_name='timelags')
+
+# row 6 is the real time lags
+tl_d = {col: [int(lag)] for col, lag in T_df.iloc[6, :].items()}
+T_df = pd.DataFrame(tl_d)
 
 # Check that the data frames contain the correct number of inputs
+assert np.all(X_df.columns == T_df.columns)
 assert len(X_df.columns) == len(to_retain)
 
 # Check that the data frame input names match those in to_retain
@@ -83,10 +103,8 @@ X_df_norm = scaler2.fit_transform(X_df)
 X_df_normalised = pd.DataFrame(X_df_norm, columns=X_df.columns)
 
 # Save final training and validation data
-file = Path(__file__).resolve()
-prev_folder = file.parents[1]
-file_name = 'NSG_processed_data_14_inputs.xlsx'
-writer = pd.ExcelWriter(prev_folder / 'processed' / file_name)
+output_file_name = 'NSG_processed_data.xlsx'
+writer = pd.ExcelWriter(PROCESSED_PATH / output_file_name)
 
 # Save to spreadsheet
 X_df_standardised.to_excel(writer, sheet_name='X_stand', index=False)

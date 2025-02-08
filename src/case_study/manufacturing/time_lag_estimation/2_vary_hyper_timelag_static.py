@@ -1,5 +1,4 @@
 import torch
-import time
 import gpytorch
 import pandas as pd
 import numpy as np

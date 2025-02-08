@@ -2,8 +2,6 @@ import pandas as pd
 import numpy as np
 import time
 from matplotlib import pyplot as plt
-from sklearn.preprocessing import StandardScaler as ss
-from case_study.manufacturing.data_and_preprocessing.raw import data_processing_methods as dpm
 
 """
 NSG data
