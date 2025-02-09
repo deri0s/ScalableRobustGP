@@ -118,7 +118,7 @@ covar_module = InducingPointKernel(se,
                                    inducing_points=inducing_points,
                                    likelihood=likelihood)
 
-N_sim = 10
+N_sim = 200
 init_ls = []
 init_nv = []
 init_ls_rq = []
@@ -233,13 +233,10 @@ init_opt_ls_rq = df_sim.init_ls_rq[indx].values[0]
 init_opt_alpha = df_sim.init_alpha[indx].values[0]
 opt_os = df_sim.outputscale[indx].values[0]
 opt_ls = df_sim.lengthscale[indx].values[0]
-opt_nv = df_sim.noise_var[indx].values
-opt_ls_rq = df_sim.lengthscale_RQ[indx].values
-opt_alpha = df_sim.alpha[indx].values
-mse_test = df_sim.mse[indx].values
-
-print(f'\ninit_ls: \n {init_opt_ls}\ninit_nv: {init_opt_nv}\ninit_alpha: {init_opt_alpha}')
-print('\nmse: ', df_sim.mse[indx].values)
+opt_nv = df_sim.noise_var[indx].values[0]
+opt_ls_rq = df_sim.lengthscale_RQ[indx].values[0]
+opt_alpha = df_sim.alpha[indx].values[0]
+mse_test = df_sim.mse[indx].values[0]
 
 # GP object
 gp = SparseGP(X_train, y_train, likelihood, covar_module, init_opt_nv)
@@ -293,37 +290,54 @@ lower = scaler.inverse_transform(lower_stand.unsqueeze(1))[:,0]
 upper = scaler.inverse_transform(upper_stand.unsqueeze(1))[:,0]
 
 mse_full = mean_squared_error(mu, y_nonstand)
-print('MSE: ', mse_full)
-print('To beat (RBF), step=30, MSE: ', 0.044)
+print('MSE: (train - test)', mse_full)
+print('MSE (test): ', df_sim.mse[indx].values)
 
 """--------------------------------------------------------------------------
 SAVE OPTIMAL CONFIGURATION
 """
+torch.save(gp.state_dict(), 'gp_state.pth')
 
-# Write optimal configuration in a YAML file
-d = {'step': step,
-     'N': N,
-     'N_train': N_train,
-     'test_percentage': test_perc,
-     'date': {'start': date_time[0], 'end': date_time[-1]},
-     'kernel_equation': 'InducingPoint( Scale(RBF + RQ) ) + WN(in likelihood)',
-     'outputscale': {'initial': 1, 'optimal': opt_os},
-     'RBF': {
-         'lengthscale': {'initial': init_opt_ls, 'optimal': opt_ls}
-     },
-     'RQ': {
-         'lengthscale': {'initial': init_opt_ls_rq, 'optimal': opt_ls_rq},
-         'alpha': {'initial': init_opt_alpha, 'optimal': opt_alpha}
-     },
-     'WN': {
-         'var': {'initial': init_opt_nv, 'optimal: ': opt_nv}
-     },
-     'mse': {'full': mse_full, 'test': mse_test}
-     }
+# Save hyperparameters in a YAML file just in case
+def convert_numpy(obj):
+    """Recursively convert NumPy arrays and scalars to Python-native types."""
+    if isinstance(obj, (np.generic, np.number)):  
+        return obj.item()  # Convert NumPy scalar (float32, float64, int32, int64) to Python scalar
+    elif isinstance(obj, np.ndarray):  
+        return obj.astype(float).tolist()  # Convert array to list of Python floats
+    elif isinstance(obj, dict):  
+        return {k: convert_numpy(v) for k, v in obj.items()}  # Recursively process dict
+    elif isinstance(obj, list):  
+        return [convert_numpy(i) for i in obj]  # Recursively process list
+    return obj  # Return unchanged if not a NumPy type
 
-# Writing the data to a YAML file
+d = {
+    'step': step,
+    'N': N,
+    'N_train': N_train,
+    'test_percentage': test_perc,
+    'date': {'start': str(date_time[0]), 'end': str(date_time[-1])},
+    'kernel_equation': 'InducingPoint( Scale(RBF + RQ) ) + WN(in likelihood)',
+    'outputscale': {'initial': 1, 'optimal': opt_os},
+    'RBF': {
+        'lengthscale': {'initial': init_opt_ls, 'optimal': opt_ls}
+    },
+    'RQ': {
+        'lengthscale': {'initial': init_opt_ls_rq, 'optimal': opt_ls_rq},
+        'alpha': {'initial': init_opt_alpha, 'optimal': opt_alpha}
+    },
+    'WN': {
+        'var': {'initial': init_opt_nv, 'optimal': opt_nv}
+    },
+    'mse': {'full': mse_full, 'test': mse_test}
+}
+
+# Convert NumPy objects to Python-native types
+d_converted = convert_numpy(d)
+
+# Dump to YAML
 with open('config_main.yaml', 'w') as file:
-    yaml.dump(d, file)
+    yaml.safe_dump(d_converted, file, default_flow_style=False)
 
 print("Data successfully written")
 

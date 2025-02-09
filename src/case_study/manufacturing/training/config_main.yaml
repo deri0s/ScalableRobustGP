@@ -2,240 +2,84 @@ N: 2552
 N_train: 2246
 RBF:
   lengthscale:
-    initial: !!python/object/apply:numpy.core.multiarray._reconstruct
-      args:
-      - &id001 !!python/name:numpy.ndarray ''
-      - !!python/tuple
-        - 0
-      - !!binary |
-        Yg==
-      state: !!python/tuple
-      - 1
-      - !!python/tuple
-        - 14
-      - &id002 !!python/object/apply:numpy.dtype
-        args:
-        - f8
-        - false
-        - true
-        state: !!python/tuple
-        - 3
-        - <
-        - null
-        - null
-        - null
-        - -1
-        - -1
-        - 0
-      - false
-      - !!binary |
-        asBbBnqbGUDuEhQb4r/3P50nE1yttiBANqWAZnSvEEBTYTzXFLERQF3yIMijcRJAgO7fl5zN+T/v
-        HTS1JPoZQM6UJyB/JxpAx0uYDSevGUCTY1wwvSIiQHeoqQSdqCJAhou/Dcuy/z+drrB85xgWQA==
-    optimal: !!python/object/apply:numpy.core.multiarray._reconstruct
-      args:
-      - *id001
-      - !!python/tuple
-        - 0
-      - !!binary |
-        Yg==
-      state: !!python/tuple
-      - 1
-      - !!python/tuple
-        - 14
-      - &id003 !!python/object/apply:numpy.dtype
-        args:
-        - f4
-        - false
-        - true
-        state: !!python/tuple
-        - 3
-        - <
-        - null
-        - null
-        - null
-        - -1
-        - -1
-        - 0
-      - false
-      - !!binary |
-        8UrXQAsJ9z9QEAdBgfthQAGUmUDZzJ1AKET/P0DnzUAwfeVAjHTcQEhjFUE8VANBQAzkP7fpxkA=
+    initial:
+    - 3.5587635040283203
+    - 7.601487159729004
+    - 1.0249042510986328
+    - 4.175692558288574
+    - 1.397346019744873
+    - 3.716492176055908
+    - 0.2718246877193451
+    - 0.5149909853935242
+    - 6.068893909454346
+    - 4.047704696655273
+    - 9.00793170928955
+    - 2.657792568206787
+    - 6.228599548339844
+    - 3.4500865936279297
+    optimal:
+    - 3.8244595527648926
+    - 6.7283196449279785
+    - 0.8428357243537903
+    - 3.370135545730591
+    - 1.6944540739059448
+    - 4.367797374725342
+    - 0.4888061285018921
+    - 0.7361997961997986
+    - 5.954188346862793
+    - 4.3028974533081055
+    - 8.594974517822266
+    - 2.009310007095337
+    - 6.513217926025391
+    - 4.09688663482666
 RQ:
   alpha:
-    initial: !!python/object/apply:numpy.core.multiarray.scalar
-    - *id002
-    - !!binary |
-      3fNCDZBX/j8=
-    optimal: !!python/object/apply:numpy.core.multiarray._reconstruct
-      args:
-      - *id001
-      - !!python/tuple
-        - 0
-      - !!binary |
-        Yg==
-      state: !!python/tuple
-      - 1
-      - !!python/tuple
-        - 1
-      - *id002
-      - false
-      - !!binary |
-        AAAAoHzvAUA=
+    initial: 0.6990972757339478
+    optimal: 0.3732199966907501
   lengthscale:
-    initial: !!python/object/apply:numpy.core.multiarray._reconstruct
-      args:
-      - *id001
-      - !!python/tuple
-        - 0
-      - !!binary |
-        Yg==
-      state: !!python/tuple
-      - 1
-      - !!python/tuple
-        - 14
-      - *id002
-      - false
-      - !!binary |
-        kt18ZeKMCUBJXDJAX9UYQN3XJuAfGSJA2YRyJoKrG0D7mIMHcIbtP1LSybn32yJACslOAbdwA0Aa
-        U0/2n4EcQCOA7Z9gZ/Y/fqU3b6ca9D+G/f4krFvWP2CkJDBO/eY/aapvmkk1FUB4Ec56xfUSQA==
-    optimal: !!python/object/apply:numpy.core.multiarray._reconstruct
-      args:
-      - *id001
-      - !!python/tuple
-        - 0
-      - !!binary |
-        Yg==
-      state: !!python/tuple
-      - 1
-      - !!python/tuple
-        - 1
-      - !!python/object/apply:numpy.dtype
-        args:
-        - O8
-        - false
-        - true
-        state: !!python/tuple
-        - 3
-        - '|'
-        - null
-        - null
-        - null
-        - -1
-        - -1
-        - 63
-      - false
-      - - !!python/object/apply:numpy.core.multiarray._reconstruct
-          args:
-          - *id001
-          - !!python/tuple
-            - 0
-          - !!binary |
-            Yg==
-          state: !!python/tuple
-          - 1
-          - !!python/tuple
-            - 14
-          - *id003
-          - false
-          - !!binary |
-            e5FDQLwtukBTzAhB/oLKQFkqoz8x9RZBrhlBQI6E1kDnrsc/mJ3APx3WAz8fFIA/T52tQMNLrEA=
+    initial:
+    - 3.5587635040283203
+    - 7.601487159729004
+    - 1.0249042510986328
+    - 4.175692558288574
+    - 1.397346019744873
+    - 3.716492176055908
+    - 0.2718246877193451
+    - 0.5149909853935242
+    - 6.068893909454346
+    - 4.047704696655273
+    - 9.00793170928955
+    - 2.657792568206787
+    - 6.228599548339844
+    - 3.4500865936279297
+    optimal:
+    - 10.316610336303711
+    - 7.28361701965332
+    - 2.324735403060913
+    - 2.7320358753204346
+    - 4.135288715362549
+    - 0.40191641449928284
+    - 4.295527458190918
+    - 2.8743162155151367
+    - 4.421989440917969
+    - 3.854144334793091
+    - 3.5893006324768066
+    - 6.6593499183654785
+    - 3.363222122192383
+    - 11.244990348815918
 WN:
   var:
-    initial: !!python/object/apply:numpy.core.multiarray.scalar
-    - *id002
-    - !!binary |
-      Z3asH6VeoT8=
-    'optimal: ': !!python/object/apply:numpy.core.multiarray._reconstruct
-      args:
-      - *id001
-      - !!python/tuple
-        - 0
-      - !!binary |
-        Yg==
-      state: !!python/tuple
-      - 1
-      - !!python/tuple
-        - 1
-      - *id002
-      - false
-      - !!binary |
-        AAAAoDfprT8=
+    initial: 0.0402970127761364
+    optimal: 0.06099221855401993
 date:
-  end: !!python/object/apply:numpy.core.multiarray.scalar
-  - !!python/object/apply:numpy.dtype
-    args:
-    - M8
-    - false
-    - true
-    state: !!python/tuple
-    - 4
-    - <
-    - null
-    - null
-    - null
-    - -1
-    - -1
-    - 0
-    - !!python/tuple
-      - {}
-      - !!python/tuple
-        - !!binary |
-          bnM=
-        - 1
-        - 1
-        - 1
-  - !!binary |
-    AEDexhePMBY=
-  start: !!python/object/apply:numpy.core.multiarray.scalar
-  - !!python/object/apply:numpy.dtype
-    args:
-    - M8
-    - false
-    - true
-    state: !!python/tuple
-    - 4
-    - <
-    - null
-    - null
-    - null
-    - -1
-    - -1
-    - 0
-    - !!python/tuple
-      - {}
-      - !!python/tuple
-        - !!binary |
-          bnM=
-        - 1
-        - 1
-        - 1
-  - !!binary |
-    ACBInPKuJRY=
+  end: '2020-09-01T04:40:00.000000000'
+  start: '2020-07-27T18:20:00.000000000'
 kernel_equation: InducingPoint( Scale(RBF + RQ) ) + WN(in likelihood)
 mse:
-  full: !!python/object/apply:numpy.core.multiarray.scalar
-  - *id002
-  - !!binary |
-    kN65mp/Jdj8=
-  test: !!python/object/apply:numpy.core.multiarray._reconstruct
-    args:
-    - *id001
-    - !!python/tuple
-      - 0
-    - !!binary |
-      Yg==
-    state: !!python/tuple
-    - 1
-    - !!python/tuple
-      - 1
-    - *id002
-    - false
-    - !!binary |
-      z3Lo52L2hD8=
+  full: 0.011631027016814267
+  test: 0.004976121917496654
 outputscale:
   initial: 1
-  optimal: !!python/object/apply:numpy.core.multiarray.scalar
-  - *id002
-  - !!binary |
-    AAAAwGVB3j8=
+  optimal: 0.20030270516872406
 step: 60
 test_percentage: 0.12
