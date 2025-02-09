@@ -92,7 +92,7 @@ X_test = torch.tensor(X_test, dtype=floating_point)
 Sparse GP
 """
 # ! Always clone
-step = 10
+step = 30
 inducing_points = X_train[::step, :].clone()
 
 # ! Ensure data is of shape [N, D]
