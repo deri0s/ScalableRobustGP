@@ -95,7 +95,7 @@ Sparse GP
 with open('config_main.yaml', 'r') as f:
     config = yaml.safe_load(f)
 
-init_noise_var = config['WN']['var']['initial']
+init_noise_var = config['WN']['var']['optimal']
 
 # Train and test data
 step = config['step']

@@ -118,7 +118,7 @@ covar_module = InducingPointKernel(se,
                                    inducing_points=inducing_points,
                                    likelihood=likelihood)
 
-N_sim = 200
+N_sim = 300
 init_ls = []
 init_nv = []
 init_ls_rq = []
@@ -148,7 +148,7 @@ for i in range(N_sim):
         # save initial hyperparameters
         init_ls.append(ls.squeeze(0).detach().numpy())
         init_nv.append(nv)
-        init_ls_rq.append(ls.squeeze(0).detach().numpy())
+        init_ls_rq.append(ls2.squeeze(0).detach().numpy())
         init_alpha.append(alpha)
 
     # GP object
@@ -190,6 +190,7 @@ for i in range(N_sim):
         pred_mean = observed_pred.mean
         mu = scaler.inverse_transform(pred_mean.unsqueeze(1))[:,0]
         mse = mean_squared_error(mu[end_train:N], y_nonstand[end_train:N])
+        # mse = mean_squared_error(mu, y_nonstand)
 
     # collect results
     os_list.append(os)
@@ -218,12 +219,7 @@ d = {'step': step,
 
 df_sim = pd.DataFrame(d)
 
-# save into spreadsheet
-df_best5 = df_sim.sort_values(by='mse').iloc[0:5, :]
-# df_best5.to_excel('opt_hyper_RBF_RQ.xlsx')
-# df_best5.to_excel('opt_hyper_RBF_RQ.xlsx')
-
-print('lowest errors \n', df_sim.mse.sort_values()[0:5])
+print('lowest errors \n', df_sim.mse.sort_values()[0:3], '\n')
 
 indx = df_sim[df_sim.mse == df_sim.mse.min()].index
 
@@ -290,8 +286,8 @@ lower = scaler.inverse_transform(lower_stand.unsqueeze(1))[:,0]
 upper = scaler.inverse_transform(upper_stand.unsqueeze(1))[:,0]
 
 mse_full = mean_squared_error(mu, y_nonstand)
-print('MSE: (train - test)', mse_full)
-print('MSE (test): ', df_sim.mse[indx].values)
+print('\nMSE: (train - test) trained with indx', mse_full)
+print('MSE (test) in loop: ', df_sim.mse[indx].values)
 
 """--------------------------------------------------------------------------
 SAVE OPTIMAL CONFIGURATION
@@ -336,7 +332,7 @@ d = {
 d_converted = convert_numpy(d)
 
 # Dump to YAML
-with open('config_main.yaml', 'w') as file:
+with open('config_try.yaml', 'w') as file:
     yaml.safe_dump(d_converted, file, default_flow_style=False)
 
 print("Data successfully written")
