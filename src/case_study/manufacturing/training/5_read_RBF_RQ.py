@@ -1,6 +1,7 @@
-import yaml
 import torch
+import time
 import gpytorch
+import yaml
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import StandardScaler as ss
@@ -10,7 +11,9 @@ from gpytorch.models import ExactGP
 from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.distributions import MultivariateNormal
 from gpytorch.means import ConstantMean
-from gpytorch.kernels import InducingPointKernel, ScaleKernel, RBFKernel as RBF, RQKernel as RQ
+from gpytorch.mlls import ExactMarginalLogLikelihood
+from gpytorch.kernels import InducingPointKernel, ScaleKernel
+from gpytorch.kernels import RBFKernel as RBF, RQKernel as RQ
 
 """
 NSG data
@@ -22,6 +25,10 @@ file = 'validation_data_main.xlsx'
 X_df = pd.read_excel(file, sheet_name='X_stand')
 y_df = pd.read_excel(file, sheet_name='y_nonstand')
 t_df = pd.read_excel(file, sheet_name='timelags')
+
+# drop Tewwl position ! only add this for the my-intuition.yaml
+X_df.drop(columns=['9282 Tweel Position'], inplace=True)
+t_df.drop(columns=['9282 Tweel Position'], inplace=True)
 
 # Pre-Process training data
 N, D = np.shape(X_df.values)
@@ -55,11 +62,10 @@ X_df, y_df = align_inputs(X_df, y_df, t_df.iloc[0,:])
     STANDARDISE TRAINING & TEST DATA
 """
 # Read best hyperparameters and initialisation values from the yml file
-with open('config_main.yaml', 'r') as f:
+with open('config_my_intuition.yaml', 'r') as f:
     config = yaml.safe_load(f)
-
+    
 test_perc = config['test_percentage']
-init_noise_var = config['WN']['var']['optimal']
 
 X = X_df.values
 y_nonstand, date_time = y_df.gp_pred.values, y_df.date_time.values
@@ -78,9 +84,6 @@ y_train_nonstand = y_nonstand[0:end_train]
 X_test = X[0:N]
 date_time = date_time[0:N]
 
-assert len(X_train_np) == len(y_train_nonstand), 'X-train and y-train length are not the same'
-assert len(X_test) == len(y_nonstand), 'X-test and y-test length are not the same'
-
 # Standardise outputs
 y_train = y_train_nonstand.reshape(-1,1)
 scaler = ss()
@@ -96,9 +99,9 @@ X_test = torch.tensor(X_test, dtype=floating_point)
 """----------------------------------------------------------------------------
 Sparse GP
 """
+# step = config['step']
+step = 10
 
-# Train and test data
-step = config['step']
 inducing_points = X_train[::step, :].clone()
 
 # ! Ensure data is of shape [N, D]
@@ -117,6 +120,12 @@ covar_module = InducingPointKernel(k,
                                    inducing_points=inducing_points,
                                    likelihood=likelihood)
 
+# read initial hyperparameters
+init_ls = config['RBF']['lengthscale']['optimal']
+init_ls_rq = config['RQ']['lengthscale']['optimal']
+init_alpha = config['RQ']['alpha']['optimal']
+init_noise_var = config['WN']['var']['optimal']
+
 class SparseGP(ExactGP):
     def __init__(self, train_x, train_y, likelihood, kernel, noise_var):
         super(SparseGP, self).__init__(train_x, train_y, likelihood)
@@ -129,13 +138,37 @@ class SparseGP(ExactGP):
         covar_x = self.covar_module(x)
         return MultivariateNormal(mean_x, covar_x)
 
-state_dict = torch.load('gp_state_error_0004.pth')
 gp = SparseGP(X_train, y_train, likelihood, covar_module, init_noise_var)
-
-gp.load_state_dict(state_dict)
+# initialise kernel parameters
+gp.covar_module.base_kernel.base_kernel.outputscale = 1
+gp.covar_module.base_kernel.base_kernel.kernels[0].lengthscale = init_ls
+gp.covar_module.base_kernel.base_kernel.kernels[1].lengthscale = init_ls_rq
+gp.covar_module.base_kernel.base_kernel.kernels[1].alpha = init_alpha
 
 # Print initial kernel parameters
 print("\nInitial kernel parameters:")
+print("Outputscale:", gp.covar_module.base_kernel.outputscale.item())
+
+# Train model
+start_time = time.time()
+gp.train()
+gp.likelihood.train()
+
+optimizer = torch.optim.Adam(gp.parameters(), lr=0.05)
+mll = ExactMarginalLogLikelihood(likelihood, gp)
+
+training_iterations = 100
+for count in range(training_iterations):
+    optimizer.zero_grad()
+    output = gp(X_train)
+    loss = -mll(output, y_train)
+    loss.backward()
+    optimizer.step()
+end_time = time.time() - start_time
+
+print(f'\nTraining time: {end_time} ms')
+
+print("\nEstimated kernel parameters")
 print("Outputscale:", gp.covar_module.base_kernel.outputscale.item())
 
 # *Induced points

@@ -24,6 +24,10 @@ X_df = pd.read_excel(file, sheet_name='X_stand')
 y_df = pd.read_excel(file, sheet_name='y_nonstand')
 t_df = pd.read_excel(file, sheet_name='timelags')
 
+# drop Tewwl position
+X_df.drop(columns=['9282 Tweel Position'], inplace=True)
+t_df.drop(columns=['9282 Tweel Position'], inplace=True)
+
 # Pre-Process training data
 N, D = np.shape(X_df.values)
 
@@ -106,7 +110,7 @@ class SparseGP(ExactGP):
         return MultivariateNormal(mean_x, covar_x)
     
 # ! Always clone
-step = 60
+step = 10
 inducing_points = X_train[::step, :].clone()
 
 # Model
@@ -118,7 +122,7 @@ covar_module = InducingPointKernel(se,
                                    inducing_points=inducing_points,
                                    likelihood=likelihood)
 
-N_sim = 300
+N_sim = 500
 init_ls = []
 init_nv = []
 init_ls_rq = []
@@ -137,7 +141,7 @@ for i in range(N_sim):
     if random:
         ls = np.random.uniform(low=0.1, high=10, size=D)
         nv = np.random.uniform(low=0.01, high=0.1)
-        ls2= np.random.uniform(low=0.1, high=10, size=D)
+        ls2= np.random.uniform(low=0.1, high=80, size=D)
         alpha = np.random.uniform(low=0.1, high=2.0)
         # save initial hyperparameters
         init_ls.append(ls)
@@ -292,7 +296,7 @@ print('MSE (test) in loop: ', df_sim.mse[indx].values)
 """--------------------------------------------------------------------------
 SAVE OPTIMAL CONFIGURATION
 """
-torch.save(gp.state_dict(), 'gp_state.pth')
+torch.save(gp.state_dict(), 'gp_state_step_10.pth')
 
 # Save hyperparameters in a YAML file just in case
 def convert_numpy(obj):
@@ -332,7 +336,7 @@ d = {
 d_converted = convert_numpy(d)
 
 # Dump to YAML
-with open('config_try.yaml', 'w') as file:
+with open('config_step_10.yaml', 'w') as file:
     yaml.safe_dump(d_converted, file, default_flow_style=False)
 
 print("Data successfully written")
