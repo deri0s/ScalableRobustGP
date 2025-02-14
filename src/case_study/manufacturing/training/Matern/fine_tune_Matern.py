@@ -11,13 +11,14 @@ from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.distributions import MultivariateNormal
 from gpytorch.means import ConstantMean
 from gpytorch.mlls import ExactMarginalLogLikelihood
-from gpytorch.kernels import InducingPointKernel, ScaleKernel, RBFKernel as RBF, RQKernel as RQ
+from gpytorch.kernels import InducingPointKernel, ScaleKernel, MaternKernel
+
 
 """
 NSG data
 """
 
-file = 'validation_data_main.xlsx'
+file = '../validation_data_main.xlsx'
 
 # Training df
 X_df = pd.read_excel(file, sheet_name='X_stand')
@@ -67,9 +68,6 @@ N, D = np.shape(X)
 test_perc = 0.12
 end_train = N - int(len(y_nonstand)*test_perc)
 
-# make sure X and y are the same size
-assert N - int(len(X)*test_perc) == N - int(len(y_nonstand)*test_perc), 'Size of X and y are not the same'
-
 X_train_np = X[0:end_train]
 date_train = date_time[0:end_train]
 N_train = len(X_train_np)
@@ -77,9 +75,6 @@ y_train_nonstand = y_nonstand[0:end_train]
 
 X_test = X[0:N]
 date_time = date_time[0:N]
-
-assert len(X_train_np) == len(y_train_nonstand), 'X-train and y-train length are not the same'
-assert len(X_test) == len(y_nonstand), 'X-test and y-test length are not the same'
 
 # Standardise outputs
 y_train = y_train_nonstand.reshape(-1,1)
@@ -110,57 +105,47 @@ class SparseGP(ExactGP):
         return MultivariateNormal(mean_x, covar_x)
     
 # ! Always clone
-step = 10
+step = 40
 inducing_points = X_train[::step, :].clone()
 
 # Model
 likelihood = GaussianLikelihood()
-
-se = ScaleKernel(RBF(ard_num_dims=X_train.shape[-1]) + RQ(ard_num_dims=X_train.shape[-1]))
-
+se = ScaleKernel(MaternKernel(nu=1.5, ard_num_dims=D))
 covar_module = InducingPointKernel(se,
                                    inducing_points=inducing_points,
                                    likelihood=likelihood)
-
-N_sim = 500
+N_sim = 2000
+init_os = []
 init_ls = []
 init_nv = []
-init_ls_rq = []
-init_alpha = []
 os_list = []
 ls_list = []
 nv_list = []
-ls_rq_list = []
-alpha_list = []
 mse_list = []
 random = True
+kconfig = '_Matern_1p5_'
 
 for i in range(N_sim):
     print(f'Hyperparameter simulation: {i}/{N_sim}')
 
     if random:
-        ls = np.random.uniform(low=0.1, high=10, size=D)
-        nv = np.random.uniform(low=0.01, high=0.1)
-        ls2= np.random.uniform(low=0.1, high=80, size=D)
-        alpha = np.random.uniform(low=0.1, high=2.0)
+        os = np.random.uniform(low=120, high=180)
+        ls = np.random.uniform(low=0.1, high=95, size=D)
+        nv = np.random.uniform(low=0.01, high=0.09)
         # save initial hyperparameters
+        init_os.append(os)
         init_ls.append(ls)
         init_nv.append(nv)
-        init_ls_rq.append(ls2)
-        init_alpha.append(alpha)
     else:
         # save initial hyperparameters
+        init_os.append(os)
         init_ls.append(ls.squeeze(0).detach().numpy())
         init_nv.append(nv)
-        init_ls_rq.append(ls2.squeeze(0).detach().numpy())
-        init_alpha.append(alpha)
 
     # GP object
     gp = SparseGP(X_train, y_train, likelihood, covar_module, nv)
-    gp.covar_module.base_kernel.base_kernel.outputscale = 1
+    gp.covar_module.base_kernel.outputscale = os
     gp.covar_module.base_kernel.base_kernel.kernels[0].lengthscale = ls
-    gp.covar_module.base_kernel.base_kernel.kernels[1].lengthscale = ls2
-    gp.covar_module.base_kernel.base_kernel.kernels[1].alpha = alpha
 
     # Train model
     gp.train()
@@ -178,11 +163,9 @@ for i in range(N_sim):
         optimizer.step()
 
     # get the estimated hyperparameters
-    os = gp.covar_module.base_kernel.outputscale.item()
-    ls = gp.covar_module.base_kernel.base_kernel.kernels[0].lengthscale
-    ls2= gp.covar_module.base_kernel.base_kernel.kernels[1].lengthscale
+    os   = gp.covar_module.base_kernel.outputscale.item()
+    ls   = gp.covar_module.base_kernel.base_kernel.lengthscale
     nv = likelihood.noise.item()
-    alpha = gp.covar_module.base_kernel.base_kernel.kernels[1].alpha.item()
 
     # Predictions
     gp.eval()
@@ -193,15 +176,12 @@ for i in range(N_sim):
         # Unormalise predictions
         pred_mean = observed_pred.mean
         mu = scaler.inverse_transform(pred_mean.unsqueeze(1))[:,0]
-        mse = mean_squared_error(mu[end_train:N], y_nonstand[end_train:N])
-        # mse = mean_squared_error(mu, y_nonstand)
+        mse = mean_squared_error(mu[end_train:-1], y_nonstand[end_train:-1])
 
     # collect results
     os_list.append(os)
     ls_list.append(ls.squeeze(0).detach().numpy())
     nv_list.append(nv)
-    ls_rq_list.append(ls2.squeeze(0).detach().numpy())
-    alpha_list.append(alpha)
     mse_list.append(mse)
 
     # check error
@@ -212,13 +192,11 @@ for i in range(N_sim):
             random = True
 
 d = {'step': step,
-     'init_os': np.ones(N_sim), 'init_ls': init_ls, 'init_nv': init_nv,
-     'init_ls_rq': init_ls_rq, 'init_alpha': init_alpha,
+     'nu': 1.5,
+     'init_os': init_os, 'init_ls': init_ls, 'init_nv': init_nv,
      'outputscale': os_list,
      'lengthscale': ls_list,
      'noise_var': nv_list,
-     'lengthscale_RQ': ls_rq_list,
-     'alpha': alpha_list,
      'mse': mse_list}
 
 df_sim = pd.DataFrame(d)
@@ -227,23 +205,18 @@ print('lowest errors \n', df_sim.mse.sort_values()[0:3], '\n')
 
 indx = df_sim[df_sim.mse == df_sim.mse.min()].index
 
+init_opt_os = df_sim.init_os[indx].values[0]
 init_opt_ls = df_sim.init_ls[indx].values[0]
 init_opt_nv = df_sim.init_nv[indx].values[0]
-init_opt_ls_rq = df_sim.init_ls_rq[indx].values[0]
-init_opt_alpha = df_sim.init_alpha[indx].values[0]
 opt_os = df_sim.outputscale[indx].values[0]
 opt_ls = df_sim.lengthscale[indx].values[0]
 opt_nv = df_sim.noise_var[indx].values[0]
-opt_ls_rq = df_sim.lengthscale_RQ[indx].values[0]
-opt_alpha = df_sim.alpha[indx].values[0]
 mse_test = df_sim.mse[indx].values[0]
 
 # GP object
 gp = SparseGP(X_train, y_train, likelihood, covar_module, init_opt_nv)
-gp.covar_module.base_kernel.outputscale = 1
+gp.covar_module.base_kernel.outputscale = init_opt_os
 gp.covar_module.base_kernel.base_kernel.kernels[0].lengthscale = init_opt_ls
-gp.covar_module.base_kernel.base_kernel.kernels[1].lengthscale = init_opt_ls_rq
-gp.covar_module.base_kernel.base_kernel.kernels[1].alpha = init_opt_alpha
 
 # Train model
 gp.train()
@@ -290,13 +263,13 @@ lower = scaler.inverse_transform(lower_stand.unsqueeze(1))[:,0]
 upper = scaler.inverse_transform(upper_stand.unsqueeze(1))[:,0]
 
 mse_full = mean_squared_error(mu, y_nonstand)
-print('\nMSE: (train - test) trained with indx', mse_full)
 print('MSE (test) in loop: ', df_sim.mse[indx].values)
+print('MSE: (train-test):', mse_full)
 
 """--------------------------------------------------------------------------
 SAVE OPTIMAL CONFIGURATION
 """
-torch.save(gp.state_dict(), 'gp_state_step_10.pth')
+torch.save(gp.state_dict(), 'gp_state'+kconfig+'step'+str(step)+'.pth')
 
 # Save hyperparameters in a YAML file just in case
 def convert_numpy(obj):
@@ -318,13 +291,10 @@ d = {
     'test_percentage': test_perc,
     'date': {'start': str(date_time[0]), 'end': str(date_time[-1])},
     'kernel_equation': 'InducingPoint( Scale(RBF + RQ) ) + WN(in likelihood)',
-    'outputscale': {'initial': 1, 'optimal': opt_os},
-    'RBF': {
+    'outputscale': {'initial': init_opt_os, 'optimal': opt_os},
+    'Matern': {
+        'nu': 1.5,
         'lengthscale': {'initial': init_opt_ls, 'optimal': opt_ls}
-    },
-    'RQ': {
-        'lengthscale': {'initial': init_opt_ls_rq, 'optimal': opt_ls_rq},
-        'alpha': {'initial': init_opt_alpha, 'optimal': opt_alpha}
     },
     'WN': {
         'var': {'initial': init_opt_nv, 'optimal': opt_nv}
@@ -336,10 +306,10 @@ d = {
 d_converted = convert_numpy(d)
 
 # Dump to YAML
-with open('config_step_10.yaml', 'w') as file:
+with open('config'+kconfig+'step'+str(step)+'.yaml', 'w') as file:
     yaml.safe_dump(d_converted, file, default_flow_style=False)
 
-print("Data successfully written")
+print("\nData successfully written")
 
 """--------------------------------------------------------------------------
 PLOT
