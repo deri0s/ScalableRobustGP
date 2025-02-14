@@ -145,7 +145,7 @@ for i in range(N_sim):
     # GP object
     gp = SparseGP(X_train, y_train, likelihood, covar_module, nv)
     gp.covar_module.base_kernel.outputscale = os
-    gp.covar_module.base_kernel.base_kernel.kernels[0].lengthscale = ls
+    gp.covar_module.base_kernel.base_kernel.lengthscale = ls
 
     # Train model
     gp.train()
@@ -216,7 +216,7 @@ mse_test = df_sim.mse[indx].values[0]
 # GP object
 gp = SparseGP(X_train, y_train, likelihood, covar_module, init_opt_nv)
 gp.covar_module.base_kernel.outputscale = init_opt_os
-gp.covar_module.base_kernel.base_kernel.kernels[0].lengthscale = init_opt_ls
+gp.covar_module.base_kernel.base_kernel.lengthscale = init_opt_ls
 
 # Train model
 gp.train()

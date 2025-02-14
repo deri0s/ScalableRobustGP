@@ -151,7 +151,7 @@ for i in range(N_sim):
         init_alpha.append(alpha)
         init_nv.append(nv)
 
-    # GP object
+    # GP object ! check if the outputscale in base_kernel.base_kernel?
     gp = SparseGP(X_train, y_train, likelihood, covar_module, nv)
     gp.covar_module.base_kernel.base_kernel.outputscale = os
     gp.covar_module.base_kernel.base_kernel.kernels[0].lengthscale = ls
