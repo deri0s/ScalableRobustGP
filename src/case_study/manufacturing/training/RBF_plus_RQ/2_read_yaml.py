@@ -99,8 +99,7 @@ X_test = torch.tensor(X_test, dtype=floating_point)
 """----------------------------------------------------------------------------
 Sparse GP
 """
-# step = config['step']
-step = 10
+step = config['step']
 inducing_points = X_train[::step, :].clone()
 
 # ! Ensure data is of shape [N, D]
@@ -114,12 +113,13 @@ assert inducing_points[2, 0] == X_train[step+step, 0], 'Init induced not the sam
 # Model
 likelihood = GaussianLikelihood()
 
-k = ScaleKernel(RBF(ard_num_dims=X_train.shape[-1]) + RQ(ard_num_dims=X_train.shape[-1]))
+k = ScaleKernel(RBF(ard_num_dims=D) + RQ(ard_num_dims=D))
 covar_module = InducingPointKernel(k,
                                    inducing_points=inducing_points,
                                    likelihood=likelihood)
 
 # read initial hyperparameters
+init_os = config['outputscale']['initial']
 init_ls = config['RBF']['lengthscale']['initial']
 init_ls_rq = config['RQ']['lengthscale']['initial']
 init_alpha = config['RQ']['alpha']['initial']
@@ -139,7 +139,7 @@ class SparseGP(ExactGP):
 
 gp = SparseGP(X_train, y_train, likelihood, covar_module, init_noise_var)
 # initialise kernel parameters
-gp.covar_module.base_kernel.base_kernel.outputscale = 1
+gp.covar_module.base_kernel.outputscale = init_os
 gp.covar_module.base_kernel.base_kernel.kernels[0].lengthscale = init_ls
 gp.covar_module.base_kernel.base_kernel.kernels[1].lengthscale = init_ls_rq
 gp.covar_module.base_kernel.base_kernel.kernels[1].alpha = init_alpha
@@ -153,7 +153,7 @@ start_time = time.time()
 gp.train()
 gp.likelihood.train()
 
-optimizer = torch.optim.Adam(gp.parameters(), lr=0.05)
+optimizer = torch.optim.Adam(gp.parameters(), lr=0.01)
 mll = ExactMarginalLogLikelihood(likelihood, gp)
 
 training_iterations = 100
@@ -167,8 +167,13 @@ end_time = time.time() - start_time
 
 print(f'\nTraining time: {end_time} ms')
 
-print("\nEstimated kernel parameters")
-print("Outputscale:", gp.covar_module.base_kernel.outputscale.item())
+# Print initial kernel parameters
+print("\nOpt kernel parameters:")
+# print("Outputscale:", gp.covar_module.base_kernel.outputscale.item())
+# print("RBF-LS:\n", gp.covar_module.base_kernel.base_kernel.kernels[0].lengthscale)
+# print("RQ-LS:\n", gp.covar_module.base_kernel.base_kernel.kernels[1].lengthscale)
+# print("RQ-alpha: ", gp.covar_module.base_kernel.base_kernel.kernels[1].alpha.item())
+# print("Noise-var:", init_noise_var)
 
 # *Induced points
 init_z_indices = np.arange(0, len(X_train.numpy()), step)
@@ -200,8 +205,8 @@ with torch.no_grad(), gpytorch.settings.fast_pred_var():
     lower = scaler.inverse_transform(lower_stand.unsqueeze(1))[:,0]
     upper = scaler.inverse_transform(upper_stand.unsqueeze(1))[:,0]
 
-print('MSE (train - test): ', mse(mu, y_nonstand))
-print('MSE (test):         ', mse(mu[end_train:-1], y_nonstand[end_train:-1]))
+print('MSE (train-test): ',mse(mu, y_nonstand))
+print('MSE (test):       ',mse(mu[end_train:-1], y_nonstand[end_train:-1]))
 
 """--------------------------------------------------------------------------
 PLOT

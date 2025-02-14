@@ -75,7 +75,7 @@ mse:
   full: 0.004077799540067084
   test: 0.004486677594133016
 outputscale:
-  initial: 1
+  initial: 142
   optimal: 173.8180694580078
 step: 40
 test_percentage: 0.12

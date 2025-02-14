@@ -10,7 +10,8 @@ from gpytorch.models import ExactGP
 from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.distributions import MultivariateNormal
 from gpytorch.means import ConstantMean
-from gpytorch.kernels import InducingPointKernel, ScaleKernel, RBFKernel as RBF, RQKernel as RQ
+from gpytorch.kernels import InducingPointKernel, ScaleKernel
+from gpytorch.kernels import RBFKernel as RBF, RQKernel as RQ
 
 """
 NSG data
@@ -139,8 +140,12 @@ gp = SparseGP(X_train, y_train, likelihood, covar_module, init_noise_var)
 gp.load_state_dict(state_dict)
 
 # Print initial kernel parameters
-print("\nInitial kernel parameters:")
+print("\nOpt kernel parameters:")
 print("Outputscale:", gp.covar_module.base_kernel.outputscale.item())
+print("RBF-LS:\n", gp.covar_module.base_kernel.base_kernel.kernels[0].lengthscale)
+print("RQ-LS:\n", gp.covar_module.base_kernel.base_kernel.kernels[1].lengthscale)
+print("RQ-alpha: ", gp.covar_module.base_kernel.base_kernel.kernels[1].alpha.item())
+print("Noise-var:", init_noise_var)
 
 # *Induced points
 init_z_indices = np.arange(0, len(X_train.numpy()), step)
@@ -153,10 +158,6 @@ for z in _z:
     distances = torch.norm(X_train - z, dim=1)
     closest_index = torch.argmin(distances).item()
     _z_indices.append(closest_index)
-
-# check the z0 and z* are not the same
-print('\nInputs induced? ',
-      ~np.all(list(init_z_indices == _z_indices)))
 
 # Predictions
 gp.eval()

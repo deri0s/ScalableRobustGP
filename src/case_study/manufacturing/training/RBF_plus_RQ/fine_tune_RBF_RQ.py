@@ -314,7 +314,7 @@ d = {
     'test_percentage': test_perc,
     'date': {'start': str(date_time[0]), 'end': str(date_time[-1])},
     'kernel_equation': 'InducingPoint( Scale(RBF + RQ) ) + WN(in likelihood)',
-    'outputscale': {'initial': 1, 'optimal': opt_os},
+    'outputscale': {'initial': init_opt_os, 'optimal': opt_os},
     'RBF': {
         'lengthscale': {'initial': init_opt_ls, 'optimal': opt_ls}
     },
