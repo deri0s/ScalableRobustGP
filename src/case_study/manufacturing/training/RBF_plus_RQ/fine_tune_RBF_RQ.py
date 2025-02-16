@@ -113,7 +113,7 @@ se = ScaleKernel(RBF(ard_num_dims=D) + RQ(ard_num_dims=D))
 covar_module = InducingPointKernel(se,
                                    inducing_points=inducing_points,
                                    likelihood=likelihood)
-N_sim = 1000
+N_sim = 3000
 init_os = []
 init_ls = []
 init_nv = []
@@ -126,17 +126,17 @@ ls_rq_list = []
 alpha_list = []
 mse_list = []
 random = True
-kconfig = '_RBF_plus_RQ_'
+kconfig = '_RBF_plus_RQ_2_'
 
 for i in range(N_sim):
     print(f'Hyperparameter simulation: {i}/{N_sim}')
 
     if random:
-        os = np.random.uniform(low=0.1, high=10)
+        os = np.random.uniform(low=100, high=200)
         ls = np.random.uniform(low=0.1, high=95, size=D)
         ls_rq= np.random.uniform(low=0.1, high=95, size=D)
-        alpha = np.random.uniform(low=0.1, high=2.0)
-        nv = np.random.uniform(low=0.01, high=0.1)
+        alpha = np.random.uniform(low=0.1, high=5.0)
+        nv = np.random.uniform(low=0.04, high=0.09)
         # save initial hyperparameters
         init_os.append(os)
         init_ls.append(ls)
@@ -153,7 +153,7 @@ for i in range(N_sim):
 
     # GP object ! check if the outputscale in base_kernel.base_kernel?
     gp = SparseGP(X_train, y_train, likelihood, covar_module, nv)
-    gp.covar_module.base_kernel.base_kernel.outputscale = os
+    gp.covar_module.base_kernel.outputscale = os
     gp.covar_module.base_kernel.base_kernel.kernels[0].lengthscale = ls
     gp.covar_module.base_kernel.base_kernel.kernels[1].lengthscale = ls_rq
     gp.covar_module.base_kernel.base_kernel.kernels[1].alpha = alpha
@@ -189,7 +189,8 @@ for i in range(N_sim):
         # Unormalise predictions
         pred_mean = observed_pred.mean
         mu = scaler.inverse_transform(pred_mean.unsqueeze(1))[:,0]
-        mse = mean_squared_error(mu[end_train:-1], y_nonstand[end_train:-1])
+        mse = mean_squared_error(mu, y_nonstand)
+        # mse = mean_squared_error(mu[end_train:-1], y_nonstand[end_train:-1])
 
     # collect results
     os_list.append(os)
@@ -325,7 +326,8 @@ d = {
     'WN': {
         'var': {'initial': init_opt_nv, 'optimal': opt_nv}
     },
-    'mse': {'full': mse_full, 'test': mse_test}
+    'mse': {'full': mse_full, 'test': mean_squared_error(mu[end_train:-1],
+                                                         y_nonstand[end_train:-1])}
 }
 
 # Convert NumPy objects to Python-native types

@@ -67,9 +67,6 @@ N, D = np.shape(X)
 test_perc = 0.12
 end_train = N - int(len(y_nonstand)*test_perc)
 
-# make sure X and y are the same size
-assert N - int(len(X)*test_perc) == N - int(len(y_nonstand)*test_perc), 'Size of X and y are not the same'
-
 X_train_np = X[0:end_train]
 date_train = date_time[0:end_train]
 N_train = len(X_train_np)
@@ -77,9 +74,6 @@ y_train_nonstand = y_nonstand[0:end_train]
 
 X_test = X[0:N]
 date_time = date_time[0:N]
-
-assert len(X_train_np) == len(y_train_nonstand), 'X-train and y-train length are not the same'
-assert len(X_test) == len(y_nonstand), 'X-test and y-test length are not the same'
 
 # Standardise outputs
 y_train = y_train_nonstand.reshape(-1,1)
@@ -115,33 +109,31 @@ inducing_points = X_train[::step, :].clone()
 
 # Model
 likelihood = GaussianLikelihood()
-se = ScaleKernel(RQ(ard_num_dims=X_train.shape[-1]))
-covar_module = InducingPointKernel(se,
+rq = ScaleKernel(RQ(ard_num_dims=D))
+covar_module = InducingPointKernel(rq,
                                    inducing_points=inducing_points,
                                    likelihood=likelihood)
-N_sim = 1000
+N_sim = 2500
 init_os = []
 init_ls = []
-init_nv = []
-init_ls_rq = []
 init_alpha = []
+init_nv = []
 os_list = []
 ls_list = []
-nv_list = []
-ls_rq_list = []
 alpha_list = []
+nv_list = []
 mse_list = []
 random = True
-kconfig = '_RQ_'
+kconfig = '_RQ_2'
 
 for i in range(N_sim):
     print(f'Hyperparameter simulation: {i}/{N_sim}')
 
     if random:
-        os = np.random.uniform(low=0.1, high=10)
+        os = np.random.uniform(low=1, high=180)
         ls = np.random.uniform(low=0.1, high=90, size=D)
-        alpha = np.random.uniform(low=0.1, high=2.0)
-        nv = np.random.uniform(low=0.01, high=0.1)
+        alpha = np.random.uniform(low=0.1, high=5.0)
+        nv = np.random.uniform(low=0.04, high=0.08)
         # save initial hyperparameters
         init_os.append(os)
         init_ls.append(ls)
@@ -156,8 +148,8 @@ for i in range(N_sim):
 
     # GP object
     gp = SparseGP(X_train, y_train, likelihood, covar_module, nv)
-    gp.covar_module.base_kernel.base_kernel.outputscale = os
-    gp.covar_module.base_kernel.base_kernel.lengthscale = ls
+    gp.covar_module.base_kernel.initialize(outputscale = os)
+    gp.covar_module.base_kernel.base_kernel.initialize(lengthscale = ls)
     gp.covar_module.base_kernel.base_kernel.alpha = alpha
 
     # Train model
@@ -310,7 +302,7 @@ d = {
     'test_percentage': test_perc,
     'date': {'start': str(date_time[0]), 'end': str(date_time[-1])},
     'kernel_equation': 'InducingPoint( Scale(RQ) ) + WN(in-likelihood)',
-    'outputscale': {'initial': 1, 'optimal': opt_os},
+    'outputscale': {'initial': init_opt_os, 'optimal': opt_os},
     'RQ': {
         'lengthscale': {'initial': init_opt_ls, 'optimal': opt_ls},
         'alpha': {'initial': init_opt_alpha, 'optimal': opt_alpha}

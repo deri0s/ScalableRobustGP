@@ -42,10 +42,10 @@ date:
   start: '2020-07-27T18:20:00.000000000'
 kernel_equation: InducingPoint( Scale(RQ) ) + WN(in-likelihood)
 mse:
-  full: 0.004353411377000711
-  test: 0.004227624052659907
+  full: 0.004335434427333269
+  test: 0.003808524732058084
 outputscale:
-  initial: 1
+  initial: 304
   optimal: 307.5814514160156
 step: 40
 test_percentage: 0.12

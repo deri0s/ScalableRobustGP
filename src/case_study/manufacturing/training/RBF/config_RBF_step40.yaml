@@ -32,17 +32,17 @@ RBF:
     - 40.98912048339844
 WN:
   var:
-    initial: 0.020953643725546714
+    initial: 0.058
     optimal: 0.046937987208366394
 date:
   end: '2020-09-01T04:40:00.000000000'
   start: '2020-07-27T18:20:00.000000000'
 kernel_equation: InducingPoint( Scale(RBF + RQ) ) + WN(in likelihood)
 mse:
-  full: 0.019350746073883374
-  test: 0.004618097805711789
+  full: 0.009759152164207216
+  test: 0.008799082511783475
 outputscale:
-  initial: 1
+  initial: 161.5
   optimal: 762.052734375
 step: 40
 test_percentage: 0.12

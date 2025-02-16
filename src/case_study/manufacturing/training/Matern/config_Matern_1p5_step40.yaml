@@ -38,7 +38,7 @@ WN:
 date:
   end: '2020-09-01T04:40:00.000000000'
   start: '2020-07-27T18:20:00.000000000'
-kernel_equation: InducingPoint( Scale(RBF + RQ) ) + WN(in likelihood)
+kernel_equation: InducingPoint( Matern ) + WN(in likelihood)
 mse:
   full: 0.005200246096456361
   test: 0.004710605179206869
