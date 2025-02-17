@@ -32,7 +32,7 @@ RBF:
     - 20.538949966430664
 RQ:
   alpha:
-    initial: 0.00026519873063080013
+    initial: 0.00012019873063080013
     optimal: 0.00026325738872401416
   lengthscale:
     initial:

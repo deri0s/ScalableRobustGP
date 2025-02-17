@@ -62,7 +62,7 @@ X_df, y_df = align_inputs(X_df, y_df, t_df.iloc[0,:])
     STANDARDISE TRAINING & TEST DATA
 """
 # Read best hyperparameters and initialisation values from the yml file
-with open('config_RBF_plus_RQ_step40.yaml', 'r') as f:
+with open('config_RBF_plus_RQ_2_step40.yaml', 'r') as f:
     config = yaml.safe_load(f)
     
 test_perc = config['test_percentage']
@@ -147,6 +147,7 @@ gp.covar_module.base_kernel.base_kernel.kernels[1].alpha = init_alpha
 # Print initial kernel parameters
 print("\nInitial kernel parameters:")
 print("Outputscale:", gp.covar_module.base_kernel.outputscale.item())
+print("Noise-var:", gp.likelihood.noise.item())
 
 # Train model
 start_time = time.time()
@@ -169,11 +170,11 @@ print(f'\nTraining time: {end_time} ms')
 
 # Print initial kernel parameters
 print("\nOpt kernel parameters:")
-# print("Outputscale:", gp.covar_module.base_kernel.outputscale.item())
+print("Outputscale:", gp.covar_module.base_kernel.outputscale.item())
 # print("RBF-LS:\n", gp.covar_module.base_kernel.base_kernel.kernels[0].lengthscale)
 # print("RQ-LS:\n", gp.covar_module.base_kernel.base_kernel.kernels[1].lengthscale)
 # print("RQ-alpha: ", gp.covar_module.base_kernel.base_kernel.kernels[1].alpha.item())
-# print("Noise-var:", init_noise_var)
+print("Noise-var:", gp.likelihood.noise.item())
 
 # *Induced points
 init_z_indices = np.arange(0, len(X_train.numpy()), step)
