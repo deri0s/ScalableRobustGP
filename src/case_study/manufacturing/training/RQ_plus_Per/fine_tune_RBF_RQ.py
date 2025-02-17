@@ -11,7 +11,7 @@ from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.distributions import MultivariateNormal
 from gpytorch.means import ConstantMean
 from gpytorch.mlls import ExactMarginalLogLikelihood
-from gpytorch.kernels import InducingPointKernel, ScaleKernel, RQKernel as RQ
+from gpytorch.kernels import InducingPointKernel, ScaleKernel, RBFKernel as RBF, RQKernel as RQ
 
 """
 NSG data
@@ -109,48 +109,54 @@ inducing_points = X_train[::step, :].clone()
 
 # Model
 likelihood = GaussianLikelihood()
-rq = ScaleKernel(RQ(ard_num_dims=D))
-covar_module = InducingPointKernel(rq,
+se = ScaleKernel(RBF(ard_num_dims=D) + RQ(ard_num_dims=D))
+covar_module = InducingPointKernel(se,
                                    inducing_points=inducing_points,
                                    likelihood=likelihood)
-N_sim = 3500
+N_sim = 3000
 init_os = []
 init_ls = []
-init_alpha = []
 init_nv = []
+init_ls_rq = []
+init_alpha = []
 os_list = []
 ls_list = []
-alpha_list = []
 nv_list = []
+ls_rq_list = []
+alpha_list = []
 mse_list = []
 random = True
-kconfig = '_RQ_3'
+kconfig = '_RBF_plus_RQ_2_'
 
 for i in range(N_sim):
     print(f'Hyperparameter simulation: {i}/{N_sim}')
 
     if random:
-        os = np.random.uniform(low=100, high=400)
+        os = np.random.uniform(low=100, high=200)
         ls = np.random.uniform(low=0.1, high=95, size=D)
-        alpha = np.random.uniform(low=0.001, high=1)
-        nv = np.random.uniform(low=0.04, high=0.08)
+        ls_rq= np.random.uniform(low=0.1, high=95, size=D)
+        alpha = np.random.uniform(low=0.1, high=5.0)
+        nv = np.random.uniform(low=0.04, high=0.09)
         # save initial hyperparameters
         init_os.append(os)
         init_ls.append(ls)
         init_nv.append(nv)
+        init_ls_rq.append(ls_rq)
         init_alpha.append(alpha)
     else:
         # save initial hyperparameters
         init_os.append(os)
         init_ls.append(ls.squeeze(0).detach().numpy())
-        init_nv.append(nv)
+        init_ls_rq.append(ls_rq.squeeze(0).detach().numpy())
         init_alpha.append(alpha)
+        init_nv.append(nv)
 
-    # GP object
+    # GP object ! check if the outputscale in base_kernel.base_kernel?
     gp = SparseGP(X_train, y_train, likelihood, covar_module, nv)
-    gp.covar_module.base_kernel.initialize(outputscale = os)
-    gp.covar_module.base_kernel.base_kernel.initialize(lengthscale = ls)
-    gp.covar_module.base_kernel.base_kernel.alpha = alpha
+    gp.covar_module.base_kernel.outputscale = os
+    gp.covar_module.base_kernel.base_kernel.kernels[0].lengthscale = ls
+    gp.covar_module.base_kernel.base_kernel.kernels[1].lengthscale = ls_rq
+    gp.covar_module.base_kernel.base_kernel.kernels[1].alpha = alpha
 
     # Train model
     gp.train()
@@ -168,9 +174,10 @@ for i in range(N_sim):
         optimizer.step()
 
     # get the estimated hyperparameters
-    os = gp.covar_module.base_kernel.outputscale.item()
-    ls = gp.covar_module.base_kernel.base_kernel.lengthscale
-    alpha = gp.covar_module.base_kernel.base_kernel.alpha.item()
+    os   = gp.covar_module.base_kernel.outputscale.item()
+    ls   = gp.covar_module.base_kernel.base_kernel.kernels[0].lengthscale
+    ls_rq= gp.covar_module.base_kernel.base_kernel.kernels[1].lengthscale
+    alpha= gp.covar_module.base_kernel.base_kernel.kernels[1].alpha.item()
     nv = likelihood.noise.item()
 
     # Predictions
@@ -188,8 +195,9 @@ for i in range(N_sim):
     # collect results
     os_list.append(os)
     ls_list.append(ls.squeeze(0).detach().numpy())
-    alpha_list.append(alpha)
+    ls_rq_list.append(ls_rq.squeeze(0).detach().numpy())
     nv_list.append(nv)
+    alpha_list.append(alpha)
     mse_list.append(mse)
 
     # check error
@@ -201,10 +209,11 @@ for i in range(N_sim):
 
 d = {'step': step,
      'init_os': init_os, 'init_ls': init_ls, 'init_nv': init_nv,
-     'init_alpha': init_alpha,
+     'init_ls_rq': init_ls_rq, 'init_alpha': init_alpha,
      'outputscale': os_list,
      'lengthscale': ls_list,
      'noise_var': nv_list,
+     'lengthscale_RQ': ls_rq_list,
      'alpha': alpha_list,
      'mse': mse_list}
 
@@ -217,18 +226,21 @@ indx = df_sim[df_sim.mse == df_sim.mse.min()].index
 init_opt_os = df_sim.init_os[indx].values[0]
 init_opt_ls = df_sim.init_ls[indx].values[0]
 init_opt_nv = df_sim.init_nv[indx].values[0]
+init_opt_ls_rq = df_sim.init_ls_rq[indx].values[0]
 init_opt_alpha = df_sim.init_alpha[indx].values[0]
 opt_os = df_sim.outputscale[indx].values[0]
 opt_ls = df_sim.lengthscale[indx].values[0]
 opt_nv = df_sim.noise_var[indx].values[0]
+opt_ls_rq = df_sim.lengthscale_RQ[indx].values[0]
 opt_alpha = df_sim.alpha[indx].values[0]
 mse_test = df_sim.mse[indx].values[0]
 
 # GP object
 gp = SparseGP(X_train, y_train, likelihood, covar_module, init_opt_nv)
 gp.covar_module.base_kernel.outputscale = init_opt_os
-gp.covar_module.base_kernel.base_kernel.lengthscale = init_opt_ls
-gp.covar_module.base_kernel.base_kernel.alpha = init_opt_alpha
+gp.covar_module.base_kernel.base_kernel.kernels[0].lengthscale = init_opt_ls
+gp.covar_module.base_kernel.base_kernel.kernels[1].lengthscale = init_opt_ls_rq
+gp.covar_module.base_kernel.base_kernel.kernels[1].alpha = init_opt_alpha
 
 # Train model
 gp.train()
@@ -275,9 +287,8 @@ lower = scaler.inverse_transform(lower_stand.unsqueeze(1))[:,0]
 upper = scaler.inverse_transform(upper_stand.unsqueeze(1))[:,0]
 
 mse_full = mean_squared_error(mu, y_nonstand)
-print('MSE (test) in loop: ', mean_squared_error(mu[end_train:-1],
-                                                 y_nonstand[end_train:-1]))
-print('\nMSE: (train-test):', mse_full)
+print('MSE (test) in loop: ', df_sim.mse[indx].values)
+print('MSE: (train-test):', mse_full)
 
 """--------------------------------------------------------------------------
 SAVE OPTIMAL CONFIGURATION
@@ -303,10 +314,13 @@ d = {
     'N_train': N_train,
     'test_percentage': test_perc,
     'date': {'start': str(date_time[0]), 'end': str(date_time[-1])},
-    'kernel_equation': 'InducingPoint( Scale(RQ) ) + WN(in-likelihood)',
+    'kernel_equation': 'InducingPoint( Scale(RBF + RQ) ) + WN(in likelihood)',
     'outputscale': {'initial': init_opt_os, 'optimal': opt_os},
+    'RBF': {
+        'lengthscale': {'initial': init_opt_ls, 'optimal': opt_ls}
+    },
     'RQ': {
-        'lengthscale': {'initial': init_opt_ls, 'optimal': opt_ls},
+        'lengthscale': {'initial': init_opt_ls_rq, 'optimal': opt_ls_rq},
         'alpha': {'initial': init_opt_alpha, 'optimal': opt_alpha}
     },
     'WN': {
@@ -323,7 +337,7 @@ d_converted = convert_numpy(d)
 with open('config'+kconfig+'step'+str(step)+'.yaml', 'w') as file:
     yaml.safe_dump(d_converted, file, default_flow_style=False)
 
-print("Data successfully written")
+print("\nData successfully written")
 
 """--------------------------------------------------------------------------
 PLOT

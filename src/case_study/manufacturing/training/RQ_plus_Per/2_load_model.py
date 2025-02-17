@@ -11,7 +11,7 @@ from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.distributions import MultivariateNormal
 from gpytorch.means import ConstantMean
 from gpytorch.kernels import InducingPointKernel, ScaleKernel
-from gpytorch.kernels import RQKernel as RQ
+from gpytorch.kernels import RBFKernel as RBF, RQKernel as RQ
 
 """
 NSG data
@@ -60,7 +60,7 @@ X_df, y_df = align_inputs(X_df, y_df, t_df.iloc[0,:])
     STANDARDISE TRAINING & TEST DATA
 """
 # Read best hyperparameters and initialisation values from the yml file
-with open('config_RQ_3step40.yaml', 'r') as f:
+with open('config_RBF_plus_RQ_2_step40.yaml', 'r') as f:
     config = yaml.safe_load(f)
 
 test_perc = config['test_percentage']
@@ -117,7 +117,7 @@ assert inducing_points[2, 0] == X_train[step+step, 0], 'Init induced not the sam
 # Model
 likelihood = GaussianLikelihood()
 
-k = ScaleKernel(RQ(ard_num_dims=D))
+k = ScaleKernel(RBF(ard_num_dims=X_train.shape[-1]) + RQ(ard_num_dims=X_train.shape[-1]))
 covar_module = InducingPointKernel(k,
                                    inducing_points=inducing_points,
                                    likelihood=likelihood)
@@ -134,7 +134,7 @@ class SparseGP(ExactGP):
         covar_x = self.covar_module(x)
         return MultivariateNormal(mean_x, covar_x)
 
-state_dict = torch.load('gp_state_RQ_3step40.pth')
+state_dict = torch.load('gp_state_RBF_plus_RQ_2_step40.pth')
 gp = SparseGP(X_train, y_train, likelihood, covar_module, init_noise_var)
 
 gp.load_state_dict(state_dict)
@@ -142,8 +142,9 @@ gp.load_state_dict(state_dict)
 # Print initial kernel parameters
 print("\nOpt kernel parameters:")
 print("Outputscale:", gp.covar_module.base_kernel.outputscale.item())
-# print("LS:\n", gp.covar_module.base_kernel.base_kernel.lengthscale)
-print("alpha:\n", gp.covar_module.base_kernel.base_kernel.alpha.item())
+print("RBF-LS:\n", gp.covar_module.base_kernel.base_kernel.kernels[0].lengthscale)
+print("RQ-LS:\n", gp.covar_module.base_kernel.base_kernel.kernels[1].lengthscale)
+print("RQ-alpha: ", gp.covar_module.base_kernel.base_kernel.kernels[1].alpha.item())
 print("Noise-var:", init_noise_var)
 
 # *Induced points

@@ -1,6 +1,7 @@
-import yaml
 import torch
+import time
 import gpytorch
+import yaml
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import StandardScaler as ss
@@ -10,8 +11,9 @@ from gpytorch.models import ExactGP
 from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.distributions import MultivariateNormal
 from gpytorch.means import ConstantMean
+from gpytorch.mlls import ExactMarginalLogLikelihood
 from gpytorch.kernels import InducingPointKernel, ScaleKernel
-from gpytorch.kernels import RQKernel as RQ
+from gpytorch.kernels import RBFKernel as RBF, RQKernel as RQ
 
 """
 NSG data
@@ -60,11 +62,10 @@ X_df, y_df = align_inputs(X_df, y_df, t_df.iloc[0,:])
     STANDARDISE TRAINING & TEST DATA
 """
 # Read best hyperparameters and initialisation values from the yml file
-with open('config_RQ_3step40.yaml', 'r') as f:
+with open('config_RBF_plus_RQ_2_step40.yaml', 'r') as f:
     config = yaml.safe_load(f)
-
+    
 test_perc = config['test_percentage']
-init_noise_var = config['WN']['var']['optimal']
 
 X = X_df.values
 y_nonstand, date_time = y_df.gp_pred.values, y_df.date_time.values
@@ -83,9 +84,6 @@ y_train_nonstand = y_nonstand[0:end_train]
 X_test = X[0:N]
 date_time = date_time[0:N]
 
-assert len(X_train_np) == len(y_train_nonstand), 'X-train and y-train length are not the same'
-assert len(X_test) == len(y_nonstand), 'X-test and y-test length are not the same'
-
 # Standardise outputs
 y_train = y_train_nonstand.reshape(-1,1)
 scaler = ss()
@@ -101,8 +99,6 @@ X_test = torch.tensor(X_test, dtype=floating_point)
 """----------------------------------------------------------------------------
 Sparse GP
 """
-
-# Train and test data
 step = config['step']
 inducing_points = X_train[::step, :].clone()
 
@@ -117,10 +113,17 @@ assert inducing_points[2, 0] == X_train[step+step, 0], 'Init induced not the sam
 # Model
 likelihood = GaussianLikelihood()
 
-k = ScaleKernel(RQ(ard_num_dims=D))
+k = ScaleKernel(RBF(ard_num_dims=D) + RQ(ard_num_dims=D))
 covar_module = InducingPointKernel(k,
                                    inducing_points=inducing_points,
                                    likelihood=likelihood)
+
+# read initial hyperparameters
+init_os = config['outputscale']['initial']
+init_ls = config['RBF']['lengthscale']['initial']
+init_ls_rq = config['RQ']['lengthscale']['initial']
+init_alpha = config['RQ']['alpha']['initial']
+init_noise_var = config['WN']['var']['initial']
 
 class SparseGP(ExactGP):
     def __init__(self, train_x, train_y, likelihood, kernel, noise_var):
@@ -134,17 +137,44 @@ class SparseGP(ExactGP):
         covar_x = self.covar_module(x)
         return MultivariateNormal(mean_x, covar_x)
 
-state_dict = torch.load('gp_state_RQ_3step40.pth')
 gp = SparseGP(X_train, y_train, likelihood, covar_module, init_noise_var)
+# initialise kernel parameters
+gp.covar_module.base_kernel.outputscale = init_os
+gp.covar_module.base_kernel.base_kernel.kernels[0].lengthscale = init_ls
+gp.covar_module.base_kernel.base_kernel.kernels[1].lengthscale = init_ls_rq
+gp.covar_module.base_kernel.base_kernel.kernels[1].alpha = init_alpha
 
-gp.load_state_dict(state_dict)
+# Print initial kernel parameters
+print("\nInitial kernel parameters:")
+print("Outputscale:", gp.covar_module.base_kernel.outputscale.item())
+print("Noise-var:", gp.likelihood.noise.item())
+
+# Train model
+start_time = time.time()
+gp.train()
+gp.likelihood.train()
+
+optimizer = torch.optim.Adam(gp.parameters(), lr=0.01)
+mll = ExactMarginalLogLikelihood(likelihood, gp)
+
+training_iterations = 100
+for count in range(training_iterations):
+    optimizer.zero_grad()
+    output = gp(X_train)
+    loss = -mll(output, y_train)
+    loss.backward()
+    optimizer.step()
+end_time = time.time() - start_time
+
+print(f'\nTraining time: {end_time} ms')
 
 # Print initial kernel parameters
 print("\nOpt kernel parameters:")
 print("Outputscale:", gp.covar_module.base_kernel.outputscale.item())
-# print("LS:\n", gp.covar_module.base_kernel.base_kernel.lengthscale)
-print("alpha:\n", gp.covar_module.base_kernel.base_kernel.alpha.item())
-print("Noise-var:", init_noise_var)
+# print("RBF-LS:\n", gp.covar_module.base_kernel.base_kernel.kernels[0].lengthscale)
+# print("RQ-LS:\n", gp.covar_module.base_kernel.base_kernel.kernels[1].lengthscale)
+# print("RQ-alpha: ", gp.covar_module.base_kernel.base_kernel.kernels[1].alpha.item())
+print("Noise-var:", gp.likelihood.noise.item())
 
 # *Induced points
 init_z_indices = np.arange(0, len(X_train.numpy()), step)
@@ -157,6 +187,10 @@ for z in _z:
     distances = torch.norm(X_train - z, dim=1)
     closest_index = torch.argmin(distances).item()
     _z_indices.append(closest_index)
+
+# check the z0 and z* are not the same
+print('\nInputs induced? ',
+      ~np.all(list(init_z_indices == _z_indices)))
 
 # Predictions
 gp.eval()
@@ -172,8 +206,8 @@ with torch.no_grad(), gpytorch.settings.fast_pred_var():
     lower = scaler.inverse_transform(lower_stand.unsqueeze(1))[:,0]
     upper = scaler.inverse_transform(upper_stand.unsqueeze(1))[:,0]
 
-print('MSE (train - test): ', mse(mu, y_nonstand))
-print('MSE (test):         ', mse(mu[end_train:-1], y_nonstand[end_train:-1]))
+print('MSE (train-test): ',mse(mu, y_nonstand))
+print('MSE (test):       ',mse(mu[end_train:-1], y_nonstand[end_train:-1]))
 
 """--------------------------------------------------------------------------
 PLOT
