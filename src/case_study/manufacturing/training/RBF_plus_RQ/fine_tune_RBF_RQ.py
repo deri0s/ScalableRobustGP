@@ -113,7 +113,7 @@ se = ScaleKernel(RBF(ard_num_dims=D) + RQ(ard_num_dims=D))
 covar_module = InducingPointKernel(se,
                                    inducing_points=inducing_points,
                                    likelihood=likelihood)
-N_sim = 3000
+N_sim = 6000
 init_os = []
 init_ls = []
 init_nv = []
@@ -126,17 +126,17 @@ ls_rq_list = []
 alpha_list = []
 mse_list = []
 random = True
-kconfig = '_RBF_plus_RQ_2_'
+kconfig = '_RBF_plus_RQ_2'
 
 for i in range(N_sim):
     print(f'Hyperparameter simulation: {i}/{N_sim}')
 
     if random:
-        os = np.random.uniform(low=100, high=200)
-        ls = np.random.uniform(low=0.1, high=95, size=D)
+        os = np.random.uniform(low=100, high=700)
+        ls = np.random.uniform(low=0.5, high=95, size=D)
         ls_rq= np.random.uniform(low=0.1, high=95, size=D)
-        alpha = np.random.uniform(low=0.1, high=5.0)
-        nv = np.random.uniform(low=0.04, high=0.09)
+        alpha = np.random.uniform(low=0.01, high=2)
+        nv = np.random.uniform(low=0.04, high=0.085)
         # save initial hyperparameters
         init_os.append(os)
         init_ls.append(ls)

@@ -11,8 +11,8 @@ from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.distributions import MultivariateNormal
 from gpytorch.means import ConstantMean
 from gpytorch.mlls import ExactMarginalLogLikelihood
-from gpytorch.kernels import InducingPointKernel, ScaleKernel, RBFKernel as RBF, RQKernel as RQ
-
+from gpytorch.kernels import InducingPointKernel, ScaleKernel
+from gpytorch.kernels import RBFKernel as RBF, PeriodicKernel as Per
 """
 NSG data
 """
@@ -109,54 +109,54 @@ inducing_points = X_train[::step, :].clone()
 
 # Model
 likelihood = GaussianLikelihood()
-se = ScaleKernel(RBF(ard_num_dims=D) + RQ(ard_num_dims=D))
+se = ScaleKernel(RBF(ard_num_dims=D) + Per(ard_num_dims=D))
 covar_module = InducingPointKernel(se,
                                    inducing_points=inducing_points,
                                    likelihood=likelihood)
-N_sim = 3000
+N_sim = 2
 init_os = []
 init_ls = []
 init_nv = []
-init_ls_rq = []
-init_alpha = []
+init_ls_per = []
+init_plength= []
 os_list = []
 ls_list = []
 nv_list = []
-ls_rq_list = []
-alpha_list = []
+ls_per_list = []
+plength_list = []
 mse_list = []
 random = True
-kconfig = '_RBF_plus_RQ_2_'
+kconfig = '_RQ_plus_Per_'
 
 for i in range(N_sim):
     print(f'Hyperparameter simulation: {i}/{N_sim}')
 
     if random:
-        os = np.random.uniform(low=100, high=200)
-        ls = np.random.uniform(low=0.1, high=95, size=D)
-        ls_rq= np.random.uniform(low=0.1, high=95, size=D)
-        alpha = np.random.uniform(low=0.1, high=5.0)
-        nv = np.random.uniform(low=0.04, high=0.09)
+        os = np.random.uniform(low=100, high=500)
+        ls = np.random.uniform(low=0.5, high=100, size=D)
+        ls_per= np.random.uniform(low=0.5, high=100, size=D)
+        plength = np.random.uniform(low=0.5, high=216, size=D)
+        nv = np.random.uniform(low=0.04, high=0.088)
         # save initial hyperparameters
         init_os.append(os)
         init_ls.append(ls)
         init_nv.append(nv)
-        init_ls_rq.append(ls_rq)
-        init_alpha.append(alpha)
+        init_ls_per.append(ls_per)
+        init_plength.append(plength)
     else:
         # save initial hyperparameters
         init_os.append(os)
         init_ls.append(ls.squeeze(0).detach().numpy())
-        init_ls_rq.append(ls_rq.squeeze(0).detach().numpy())
-        init_alpha.append(alpha)
+        init_ls_per.append(ls_per.squeeze(0).detach().numpy())
+        init_plength.append(plength.squeeze(0).detach().numpy())
         init_nv.append(nv)
 
     # GP object ! check if the outputscale in base_kernel.base_kernel?
     gp = SparseGP(X_train, y_train, likelihood, covar_module, nv)
     gp.covar_module.base_kernel.outputscale = os
     gp.covar_module.base_kernel.base_kernel.kernels[0].lengthscale = ls
-    gp.covar_module.base_kernel.base_kernel.kernels[1].lengthscale = ls_rq
-    gp.covar_module.base_kernel.base_kernel.kernels[1].alpha = alpha
+    gp.covar_module.base_kernel.base_kernel.kernels[1].lengthscale = ls_per
+    gp.covar_module.base_kernel.base_kernel.kernels[1].period_length = plength
 
     # Train model
     gp.train()
@@ -176,8 +176,8 @@ for i in range(N_sim):
     # get the estimated hyperparameters
     os   = gp.covar_module.base_kernel.outputscale.item()
     ls   = gp.covar_module.base_kernel.base_kernel.kernels[0].lengthscale
-    ls_rq= gp.covar_module.base_kernel.base_kernel.kernels[1].lengthscale
-    alpha= gp.covar_module.base_kernel.base_kernel.kernels[1].alpha.item()
+    ls_per= gp.covar_module.base_kernel.base_kernel.kernels[1].lengthscale
+    plength= gp.covar_module.base_kernel.base_kernel.kernels[1].period_length
     nv = likelihood.noise.item()
 
     # Predictions
@@ -195,9 +195,9 @@ for i in range(N_sim):
     # collect results
     os_list.append(os)
     ls_list.append(ls.squeeze(0).detach().numpy())
-    ls_rq_list.append(ls_rq.squeeze(0).detach().numpy())
+    ls_per_list.append(ls_per.squeeze(0).detach().numpy())
+    plength_list.append(plength.squeeze(0).detach().numpy())
     nv_list.append(nv)
-    alpha_list.append(alpha)
     mse_list.append(mse)
 
     # check error
@@ -209,12 +209,12 @@ for i in range(N_sim):
 
 d = {'step': step,
      'init_os': init_os, 'init_ls': init_ls, 'init_nv': init_nv,
-     'init_ls_rq': init_ls_rq, 'init_alpha': init_alpha,
+     'init_ls_per': init_ls_per, 'init_plength': init_plength,
      'outputscale': os_list,
      'lengthscale': ls_list,
      'noise_var': nv_list,
-     'lengthscale_RQ': ls_rq_list,
-     'alpha': alpha_list,
+     'lengthscale_Per': ls_per_list,
+     'plength': plength,
      'mse': mse_list}
 
 df_sim = pd.DataFrame(d)
@@ -226,21 +226,21 @@ indx = df_sim[df_sim.mse == df_sim.mse.min()].index
 init_opt_os = df_sim.init_os[indx].values[0]
 init_opt_ls = df_sim.init_ls[indx].values[0]
 init_opt_nv = df_sim.init_nv[indx].values[0]
-init_opt_ls_rq = df_sim.init_ls_rq[indx].values[0]
-init_opt_alpha = df_sim.init_alpha[indx].values[0]
+init_opt_ls_per = df_sim.init_ls_per[indx].values[0]
+init_opt_plength = df_sim.init_plength[indx].values[0]
 opt_os = df_sim.outputscale[indx].values[0]
 opt_ls = df_sim.lengthscale[indx].values[0]
 opt_nv = df_sim.noise_var[indx].values[0]
-opt_ls_rq = df_sim.lengthscale_RQ[indx].values[0]
-opt_alpha = df_sim.alpha[indx].values[0]
+opt_ls_per = df_sim.lengthscale_Per[indx].values[0]
+opt_plength = df_sim.plength[indx].values[0]
 mse_test = df_sim.mse[indx].values[0]
 
 # GP object
 gp = SparseGP(X_train, y_train, likelihood, covar_module, init_opt_nv)
 gp.covar_module.base_kernel.outputscale = init_opt_os
 gp.covar_module.base_kernel.base_kernel.kernels[0].lengthscale = init_opt_ls
-gp.covar_module.base_kernel.base_kernel.kernels[1].lengthscale = init_opt_ls_rq
-gp.covar_module.base_kernel.base_kernel.kernels[1].alpha = init_opt_alpha
+gp.covar_module.base_kernel.base_kernel.kernels[1].lengthscale = init_opt_ls_per
+gp.covar_module.base_kernel.base_kernel.kernels[1].period_length = init_opt_plength
 
 # Train model
 gp.train()
@@ -287,8 +287,9 @@ lower = scaler.inverse_transform(lower_stand.unsqueeze(1))[:,0]
 upper = scaler.inverse_transform(upper_stand.unsqueeze(1))[:,0]
 
 mse_full = mean_squared_error(mu, y_nonstand)
-print('MSE (test) in loop: ', df_sim.mse[indx].values)
 print('MSE: (train-test):', mse_full)
+print('MSE (test): ', mean_squared_error(mu[end_train:-1],
+                                         y_nonstand[end_train:-1]))
 
 """--------------------------------------------------------------------------
 SAVE OPTIMAL CONFIGURATION
@@ -320,8 +321,8 @@ d = {
         'lengthscale': {'initial': init_opt_ls, 'optimal': opt_ls}
     },
     'RQ': {
-        'lengthscale': {'initial': init_opt_ls_rq, 'optimal': opt_ls_rq},
-        'alpha': {'initial': init_opt_alpha, 'optimal': opt_alpha}
+        'lengthscale': {'initial': init_opt_ls_per, 'optimal': opt_ls_per},
+        'alpha': {'initial': init_opt_plength, 'optimal': opt_plength}
     },
     'WN': {
         'var': {'initial': init_opt_nv, 'optimal': opt_nv}
