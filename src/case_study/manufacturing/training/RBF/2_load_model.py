@@ -141,6 +141,8 @@ gp.load_state_dict(state_dict)
 # Print initial kernel parameters
 print("\nInitial kernel parameters:")
 print("Outputscale:", gp.covar_module.base_kernel.outputscale.item())
+print("lengthscale:\n", gp.covar_module.base_kernel.base_kernel.lengthscale)
+print("Noise-var:\n", gp.likelihood.noise.item())
 
 # *Induced points
 init_z_indices = np.arange(0, len(X_train.numpy()), step)

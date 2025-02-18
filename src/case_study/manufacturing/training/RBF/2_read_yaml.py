@@ -143,6 +143,8 @@ gp.covar_module.base_kernel.base_kernel.lengthscale = init_ls
 # Print initial kernel parameters
 print("\nInitial kernel parameters:")
 print("Outputscale:", gp.covar_module.base_kernel.outputscale.item())
+print("lengthscale:\n", gp.covar_module.base_kernel.base_kernel.lengthscale)
+print("Noise-var:\n", gp.likelihood.noise.item())
 
 # Train model
 start_time = time.time()

@@ -62,7 +62,7 @@ X_df, y_df = align_inputs(X_df, y_df, t_df.iloc[0,:])
     STANDARDISE TRAINING & TEST DATA
 """
 # Read best hyperparameters and initialisation values from the yml file
-with open('config_RBF_plus_RQ_2_step40.yaml', 'r') as f:
+with open('config_RBF_plus_RQ_2step40.yaml', 'r') as f:
     config = yaml.safe_load(f)
     
 test_perc = config['test_percentage']
@@ -100,6 +100,7 @@ X_test = torch.tensor(X_test, dtype=floating_point)
 Sparse GP
 """
 step = config['step']
+step = 10
 inducing_points = X_train[::step, :].clone()
 
 # ! Ensure data is of shape [N, D]
