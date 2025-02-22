@@ -113,7 +113,7 @@ se = ScaleKernel(RBF(ard_num_dims=D) + Per(ard_num_dims=D))
 covar_module = InducingPointKernel(se,
                                    inducing_points=inducing_points,
                                    likelihood=likelihood)
-N_sim = 2
+N_sim = 6000
 init_os = []
 init_ls = []
 init_nv = []
@@ -125,6 +125,7 @@ nv_list = []
 ls_per_list = []
 plength_list = []
 mse_list = []
+mse_test_list = []
 random = True
 kconfig = '_RQ_plus_Per_'
 
@@ -190,7 +191,7 @@ for i in range(N_sim):
         pred_mean = observed_pred.mean
         mu = scaler.inverse_transform(pred_mean.unsqueeze(1))[:,0]
         mse = mean_squared_error(mu, y_nonstand)
-        # mse = mean_squared_error(mu[end_train:-1], y_nonstand[end_train:-1])
+        mse_test = mean_squared_error(mu[end_train:-1], y_nonstand[end_train:-1])
 
     # collect results
     os_list.append(os)
@@ -199,6 +200,7 @@ for i in range(N_sim):
     plength_list.append(plength.squeeze(0).detach().numpy())
     nv_list.append(nv)
     mse_list.append(mse)
+    mse_test_list.append(mse_test)
 
     # check error
     if i > 1:
@@ -214,10 +216,11 @@ d = {'step': step,
      'lengthscale': ls_list,
      'noise_var': nv_list,
      'lengthscale_Per': ls_per_list,
-     'plength': plength,
-     'mse': mse_list}
+     'plength': plength_list,
+     'mse': mse_list, 'mse_test': mse_test_list}
 
 df_sim = pd.DataFrame(d)
+df_sim.loc[df_sim.mse.sort_values()[0:3].index].to_excel('best3_'+kconfig+'.xlsx')
 
 print('lowest errors \n', df_sim.mse.sort_values()[0:3], '\n')
 

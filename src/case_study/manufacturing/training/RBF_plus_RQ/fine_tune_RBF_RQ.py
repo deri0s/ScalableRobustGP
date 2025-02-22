@@ -17,7 +17,7 @@ from gpytorch.kernels import InducingPointKernel, ScaleKernel, RBFKernel as RBF,
 NSG data
 """
 
-file = '../validation_data_main.xlsx'
+file = 'validation_data_main.xlsx'
 
 # Training df
 X_df = pd.read_excel(file, sheet_name='X_stand')
@@ -113,7 +113,7 @@ se = ScaleKernel(RBF(ard_num_dims=D) + RQ(ard_num_dims=D))
 covar_module = InducingPointKernel(se,
                                    inducing_points=inducing_points,
                                    likelihood=likelihood)
-N_sim = 6000
+N_sim = 10000
 init_os = []
 init_ls = []
 init_nv = []
@@ -125,18 +125,19 @@ nv_list = []
 ls_rq_list = []
 alpha_list = []
 mse_list = []
+mse_test_list = []
 random = True
-kconfig = '_RBF_plus_RQ_2'
+kconfig = '_RBF_plus_RQ_3'
 
 for i in range(N_sim):
     print(f'Hyperparameter simulation: {i}/{N_sim}')
 
     if random:
-        os = np.random.uniform(low=100, high=700)
-        ls = np.random.uniform(low=0.5, high=95, size=D)
-        ls_rq= np.random.uniform(low=0.1, high=95, size=D)
+        os = np.random.uniform(low=0.8, high=15)
+        ls = np.random.uniform(low=0.5, high=100, size=D)
+        ls_rq= np.random.uniform(low=0.1, high=100, size=D)
         alpha = np.random.uniform(low=0.01, high=2)
-        nv = np.random.uniform(low=0.04, high=0.085)
+        nv = np.random.uniform(low=0.01, high=0.1)
         # save initial hyperparameters
         init_os.append(os)
         init_ls.append(ls)
@@ -190,7 +191,7 @@ for i in range(N_sim):
         pred_mean = observed_pred.mean
         mu = scaler.inverse_transform(pred_mean.unsqueeze(1))[:,0]
         mse = mean_squared_error(mu, y_nonstand)
-        # mse = mean_squared_error(mu[end_train:-1], y_nonstand[end_train:-1])
+        mse_test = mean_squared_error(mu[end_train:-1], y_nonstand[end_train:-1])
 
     # collect results
     os_list.append(os)
@@ -199,6 +200,7 @@ for i in range(N_sim):
     nv_list.append(nv)
     alpha_list.append(alpha)
     mse_list.append(mse)
+    mse_test_list.append(mse_test)
 
     # check error
     if i > 1:
@@ -215,11 +217,13 @@ d = {'step': step,
      'noise_var': nv_list,
      'lengthscale_RQ': ls_rq_list,
      'alpha': alpha_list,
-     'mse': mse_list}
+     'mse': mse_list,
+     'mse_test': mse_test_list}
 
 df_sim = pd.DataFrame(d)
 
 print('lowest errors \n', df_sim.mse.sort_values()[0:3], '\n')
+df_sim.loc[df_sim.mse.sort_values()[0:3].index].to_excel("best3.xlsx")
 
 indx = df_sim[df_sim.mse == df_sim.mse.min()].index
 
