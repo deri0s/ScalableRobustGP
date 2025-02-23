@@ -1,18 +1,8 @@
 import torch
-import time
-import gpytorch
 import yaml
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import StandardScaler as ss
-from sklearn.metrics import mean_squared_error as mse
-from matplotlib import pyplot as plt
-from gpytorch.models import ExactGP
-from gpytorch.likelihoods import GaussianLikelihood
-from gpytorch.distributions import MultivariateNormal
-from gpytorch.means import ConstantMean
-from gpytorch.mlls import ExactMarginalLogLikelihood
-from gpytorch.kernels import InducingPointKernel, ScaleKernel
 from gpytorch.kernels import RBFKernel as RBF, RQKernel as RQ
 
 """
@@ -163,5 +153,5 @@ for col, name in enumerate(t_df.columns):
     d[name] = temp_ls
 
 df_results = pd.DataFrame(d)
-df_results.to_excel('hyper_results.xlsx')
+# df_results.to_excel('hyper_results.xlsx')
 print(df_results.head(9))

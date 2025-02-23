@@ -62,7 +62,7 @@ X_df, y_df = align_inputs(X_df, y_df, t_df.iloc[0,:])
     STANDARDISE TRAINING & TEST DATA
 """
 # Read best hyperparameters and initialisation values from the yml file
-with open('config_RBF_plus_RQ_3step40.yaml', 'r') as f:
+with open('config_RBF_plus_RQ_step40.yaml', 'r') as f:
     config = yaml.safe_load(f)
     
 test_perc = config['test_percentage']
@@ -100,7 +100,7 @@ X_test = torch.tensor(X_test, dtype=floating_point)
 Sparse GP
 """
 step = config['step']
-# step = 10
+step = 40 #18
 inducing_points = X_train[::step, :].clone()
 
 # ! Ensure data is of shape [N, D]
@@ -120,11 +120,15 @@ covar_module = InducingPointKernel(k,
                                    likelihood=likelihood)
 
 # read initial hyperparameters
-init_os = config['outputscale']['initial']
-init_ls = config['RBF']['lengthscale']['initial']
-init_ls_rq = config['RQ']['lengthscale']['initial']
-init_alpha = config['RQ']['alpha']['initial']
-init_noise_var = config['WN']['var']['initial']
+init_os = torch.tensor(config['outputscale']['optimal'],
+                       dtype=floating_point)
+init_ls = torch.tensor(config['RBF']['lengthscale']['optimal'],
+                       dtype=floating_point)
+init_ls_rq = torch.tensor(config['RQ']['lengthscale']['optimal'],
+                          dtype=floating_point)
+init_alpha = config['RQ']['alpha']['optimal']
+init_noise_var = torch.tensor(config['WN']['var']['optimal'],
+                              dtype=floating_point)
 
 class SparseGP(ExactGP):
     def __init__(self, train_x, train_y, likelihood, kernel, noise_var):
@@ -148,6 +152,9 @@ gp.covar_module.base_kernel.base_kernel.kernels[1].alpha = init_alpha
 # Print initial kernel parameters
 print("\nInitial kernel parameters:")
 print("Outputscale:", gp.covar_module.base_kernel.outputscale.item())
+print("RBF-LS:\n", gp.covar_module.base_kernel.base_kernel.kernels[0].lengthscale)
+print("RQ-LS:\n", gp.covar_module.base_kernel.base_kernel.kernels[1].lengthscale)
+print("RQ-alpha: ", gp.covar_module.base_kernel.base_kernel.kernels[1].alpha.item())
 print("Noise-var:", gp.likelihood.noise.item())
 
 # Train model
@@ -172,9 +179,9 @@ print(f'\nTraining time: {end_time} ms')
 # Print initial kernel parameters
 print("\nOpt kernel parameters:")
 print("Outputscale:", gp.covar_module.base_kernel.outputscale.item())
-# print("RBF-LS:\n", gp.covar_module.base_kernel.base_kernel.kernels[0].lengthscale)
-# print("RQ-LS:\n", gp.covar_module.base_kernel.base_kernel.kernels[1].lengthscale)
-# print("RQ-alpha: ", gp.covar_module.base_kernel.base_kernel.kernels[1].alpha.item())
+print("RBF-LS:\n", gp.covar_module.base_kernel.base_kernel.kernels[0].lengthscale)
+print("RQ-LS:\n", gp.covar_module.base_kernel.base_kernel.kernels[1].lengthscale)
+print("RQ-alpha: ", gp.covar_module.base_kernel.base_kernel.kernels[1].alpha.item())
 print("Noise-var:", gp.likelihood.noise.item())
 
 # *Induced points

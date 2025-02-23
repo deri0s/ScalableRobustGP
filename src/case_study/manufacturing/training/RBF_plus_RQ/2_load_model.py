@@ -60,7 +60,7 @@ X_df, y_df = align_inputs(X_df, y_df, t_df.iloc[0,:])
     STANDARDISE TRAINING & TEST DATA
 """
 # Read best hyperparameters and initialisation values from the yml file
-with open('config_RBF_plus_RQ_3step40.yaml', 'r') as f:
+with open('config_RBF_plus_RQ_step40.yaml', 'r') as f:
     config = yaml.safe_load(f)
 
 test_perc = config['test_percentage']
@@ -134,7 +134,7 @@ class SparseGP(ExactGP):
         covar_x = self.covar_module(x)
         return MultivariateNormal(mean_x, covar_x)
 
-state_dict = torch.load('gp_state_RBF_plus_RQ_3step40.pth')
+state_dict = torch.load('gp_state_RBF_plus_RQ_step40.pth')
 gp = SparseGP(X_train, y_train, likelihood, covar_module, init_noise_var)
 
 gp.load_state_dict(state_dict)
@@ -173,7 +173,7 @@ with torch.no_grad(), gpytorch.settings.fast_pred_var():
     lower = scaler.inverse_transform(lower_stand.unsqueeze(1))[:,0]
     upper = scaler.inverse_transform(upper_stand.unsqueeze(1))[:,0]
 
-print('MSE (train - test): ', mse(mu, y_nonstand))
+print('\nMSE (train - test): ', mse(mu, y_nonstand))
 print('MSE (test):         ', mse(mu[end_train:-1], y_nonstand[end_train:-1]))
 
 """--------------------------------------------------------------------------

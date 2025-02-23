@@ -77,5 +77,5 @@ mse:
 outputscale:
   initial: 145.18597412109375
   optimal: 144.9818572998047
-step: 40
+step: 40 #18
 test_percentage: 0.12
