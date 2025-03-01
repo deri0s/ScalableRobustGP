@@ -119,3 +119,5 @@ class SparseGP(ExactGP):
 gp = SparseGP(X_train, y_train, likelihood, covar_module, init_noise_var)
 
 print(f'que? \n {gp.covar_module.base_kernel.base_kernel.kernels[0]}')
+
+print(torch.rand(5) + 1)

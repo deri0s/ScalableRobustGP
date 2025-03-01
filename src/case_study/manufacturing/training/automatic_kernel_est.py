@@ -78,17 +78,24 @@ y_train = torch.tensor(y_norm_np, dtype=floating_point).squeeze()
 X_test = torch.tensor(X_test, dtype=floating_point)
 
 # Always clone
-step = 60
+step = 22
 inducing_points = X_train[::step, :].clone()
 
 # Read best hyperparameters and initialization values from the yml file
-with open('config_RBF_plus_RQ_0_step40.yaml', 'r') as f:
+with open('config_RBF_plus_RQ_2_step40.yaml', 'r') as f:
     config = yaml.safe_load(f)
 
-init_os = torch.tensor(config['outputscale']['initial'], dtype=floating_point)
-init_ls_se = torch.tensor(config['RBF']['lengthscale']['initial'], dtype=floating_point)
-init_ls_rq = torch.tensor(config['RQ']['lengthscale']['initial'], dtype=floating_point)
-init_noise_var = torch.tensor(config['WN']['var']['initial'], dtype=floating_point)
+init_os = torch.tensor(config['outputscale']['initial'],
+                       dtype=floating_point)
+init_ls_se = torch.tensor(config['RBF']['lengthscale']['initial'],
+                          dtype=floating_point)
+init_ls_rq = torch.tensor(config['RQ']['lengthscale']['initial'],
+                          dtype=floating_point)
+init_alpha = torch.tensor(config['RQ']['alpha']['initial'],
+                          dtype=floating_point)
+init_noise_var = torch.tensor(config['WN']['var']['initial'],
+                              dtype=floating_point)
+init_plength = torch.tensor(torch.rand(D), dtype=floating_point)
 
 # Automatic model selection
 base_kernels = {
@@ -123,9 +130,10 @@ def init_hyper(gp: ExactGP) -> ExactGP:
             if isinstance(k, RBF):
                 k.lengthscale = init_ls_se
             if isinstance(k, RQ):
+                k.alpha = init_alpha
                 k.lengthscale = init_ls_rq
             if isinstance(k, Per):
-                k.period_length = torch.tensor(1.0, dtype=floating_point)
+                k.period_length = init_plength
         return k
 
     # check number of operand kernels
@@ -227,7 +235,7 @@ def explore_kernels(levels):
     return best_kernel()
 
 # User-defined level of complexity
-level = 2  # Change this value as needed
+level = 2
 
 # Explore kernel configurations
 kernel = InducingPointKernel(ScaleKernel(explore_kernels(level)),
@@ -241,9 +249,9 @@ gp = init_hyper(gp)
 
 print("\nInitial kernel parameters:")
 print("Outputscale:", gp.covar_module.base_kernel.outputscale.item())
-print("RBF-LS:\n", gp.covar_module.base_kernel.base_kernel.kernels[0].lengthscale)
-print("RQ-LS:\n", gp.covar_module.base_kernel.base_kernel.kernels[1].lengthscale)
-# print("RQ-alpha: ", gp.covar_module.base_kernel.base_kernel.kernels[1].alpha.item())
+print("RBF-LS:\n", gp.covar_module.base_kernel.base_kernel.kernels[1].lengthscale)
+print("RQ-LS:\n", gp.covar_module.base_kernel.base_kernel.kernels[0].lengthscale)
+# print("RQ-alpha: ", gp.covar_module.base_kernel.base_kernel.kernels[0].alpha.item())
 print("Noise-var:", gp.likelihood.noise.item())
 
 gp.train()
