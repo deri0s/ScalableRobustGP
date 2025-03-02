@@ -95,7 +95,7 @@ READ ESTIMATED MODEL
 """
 
 # Read best hyperparameters and initialisation values from the yml file
-with open('config_RBF_plus_RQ_0_step40.yaml', 'r') as f:
+with open('config_RBF_plus_RQ_2_step40.yaml', 'r') as f:
     config = yaml.safe_load(f)
 
 test_perc = config['test_percentage']
@@ -169,7 +169,7 @@ class SparseGP(ExactGP):
         covar_x = self.covar_module(x)
         return MultivariateNormal(mean_x, covar_x)
 
-state_dict = torch.load('gp_state_RBF_plus_RQ_step40.pth', weights_only=False)
+state_dict = torch.load('gp_state_RBF_plus_RQ_opt_step40.pth', weights_only=False)
 gp = SparseGP(X_train, y_train, likelihood, covar_module, init_noise_var)
 
 gp.load_state_dict(state_dict)
@@ -214,8 +214,7 @@ class FineTune():
         # Function to initialise kernel parameters
     def init_hyper(self, gp: ExactGP) -> ExactGP:
         kernel = gp.covar_module
-        kernel.base_kernel.outputscale = torch.tensor(random.gauss(mu=self.os0,
-                                                                sigma=self.var))
+        kernel.base_kernel.outputscale = torch.tensor(13.60)
 
         def set_params(k):
             if not isinstance(k, Lin):
@@ -223,10 +222,10 @@ class FineTune():
                     k.lengthscale = torch.tensor([random.gauss(self.ls_se0[0,d],
                                                                sigma=self.var) for d in range(D)])
                 if isinstance(k, RQ):
-                    k.alpha = torch.tensor(random.gauss(mu=0.2,
-                                                        sigma=1e-5))
+                    k.alpha = torch.tensor(random.gauss(mu=0.16,
+                                                        sigma=1e-4))
                     k.lengthscale = torch.tensor([random.gauss(self.ls_rq0[0,d],
-                                                               sigma=self.var) for d in range(D)])
+                                                               sigma=0.2) for d in range(D)])
                 if isinstance(k, Per):
                     k.period_length = torch.tensor(random.gauss(mu=self.plength0,
                                                    sigma=self.var))
@@ -252,8 +251,7 @@ class FineTune():
 
         for i in range(self.N_sim):
             gp = SparseGP(X_train, y_train, likelihood, covar_module,
-                          torch.tensor(random.gauss(mu=self.nv0,
-                                                    sigma=1e-5)))
+                          torch.tensor(0.03))
             gp = self.init_hyper(gp)
 
             # Train model
@@ -286,11 +284,11 @@ class FineTune():
 
             # check error
             if i > 1:
-                if mse_list[i] < 1e-3:
+                if mse_list[i] < 0.0014:
                     break
         return gp
 
-ft = FineTune(gp, 2.5, N_sim=10)
+ft = FineTune(gp, 0.8, N_sim=250)
 gp = ft.simulate()
 
 # *Induced points
