@@ -94,15 +94,14 @@ covar_module = InducingPointKernel(k,
                                    likelihood=likelihood)
 
 # read initial hyperparameters
-init_os = torch.tensor(config['outputscale']['optimal'],
-                       dtype=floating_point)
-init_ls = torch.tensor(config['RBF']['lengthscale']['optimal'],
-                       dtype=floating_point)
-init_ls_rq = torch.tensor(config['RQ']['lengthscale']['optimal'],
-                          dtype=floating_point)
-init_alpha = config['RQ']['alpha']['optimal']
-init_noise_var = torch.tensor(config['WN']['var']['optimal'],
-                              dtype=floating_point)
+os0 = torch.tensor(config['outputscale']['optimal'], dtype=floating_point)
+ls_se0 = torch.tensor(config['RBF']['lengthscale']['optimal'],
+                      dtype=floating_point)
+ls_rq0 = torch.tensor(config['RQ']['lengthscale']['optimal'],
+                      dtype=floating_point)
+alpha0 = torch.tensor(config['RQ']['alpha']['optimal'],
+                      dtype=floating_point)
+nv0 = torch.tensor(config['WN']['var']['optimal'], dtype=floating_point)
 
 class SparseGP(ExactGP):
     def __init__(self, train_x, train_y, likelihood, kernel, noise_var):
@@ -116,8 +115,18 @@ class SparseGP(ExactGP):
         covar_x = self.covar_module(x)
         return MultivariateNormal(mean_x, covar_x)
 
-gp = SparseGP(X_train, y_train, likelihood, covar_module, init_noise_var)
+gp = SparseGP(X_train, y_train, likelihood, covar_module, nv0)
 
 print(f'que? \n {gp.covar_module.base_kernel.base_kernel.kernels[0]}')
 
-print(torch.rand(5) + 1)
+print(torch.rand(5) + 1, '\n')
+
+import random
+
+# init_ls_se = np.zeros(shape=D)
+
+# for d in range(D):
+#     init_ls_se[d] = random.gauss(ls0[d], sigma=1)
+print(f'ls0:\n {ls_se0}')
+
+var = 2.5

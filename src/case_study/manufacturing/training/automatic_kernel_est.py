@@ -78,7 +78,7 @@ y_train = torch.tensor(y_norm_np, dtype=floating_point).squeeze()
 X_test = torch.tensor(X_test, dtype=floating_point)
 
 # Always clone
-step = 22
+step = 19
 inducing_points = X_train[::step, :].clone()
 
 # Read best hyperparameters and initialization values from the yml file
@@ -202,6 +202,7 @@ def combine_kernels(operands_1, operation: str, operands_2) -> dict:
 
 def get_best_kernel(kernels: dict) -> gpytorch.kernels:
     best_kernel = None
+    best_name = None
     best_error = float('inf')
 
     for name, kernel in kernels.items():
@@ -211,7 +212,8 @@ def get_best_kernel(kernels: dict) -> gpytorch.kernels:
         if test_error < best_error:
             best_error = test_error
             best_kernel = kernel
-    return best_kernel
+            best_name = name
+    return best_kernel, best_name
 
 # Function to explore kernel configurations
 def explore_kernels(levels):
@@ -223,22 +225,23 @@ def explore_kernels(levels):
     for level in range(levels):
         print(f"\nExploring level {level + 1} kernels...")
         if level <= 0:
-            best_kernel = get_best_kernel(combined)
+            best_kernel, best_name = get_best_kernel(combined)
         else:
             combined = combine_kernels(base_kernels, "+", combined)
             if level < 2:
                 combined.update(combine_kernels(base_kernels, "*", base_kernels))
-                best_kernel = get_best_kernel(combined)
+                best_kernel, best_name = get_best_kernel(combined)
             else:
-                best_kernel = get_best_kernel(combined)
+                best_kernel, best_name = get_best_kernel(combined)
 
-    return best_kernel()
+    return best_kernel(), best_name
 
 # User-defined level of complexity
 level = 2
 
 # Explore kernel configurations
-kernel = InducingPointKernel(ScaleKernel(explore_kernels(level)),
+estimated_kernel, estimated_kernel_name = explore_kernels(level)
+kernel = InducingPointKernel(ScaleKernel(estimated_kernel),
                              inducing_points=inducing_points,
                              likelihood=likelihood)
 
@@ -282,9 +285,10 @@ with torch.no_grad():
     lower = scaler.inverse_transform(lower_stand.unsqueeze(1))[:,0]
     upper = scaler.inverse_transform(upper_stand.unsqueeze(1))[:,0]
 
-print(f"\nEstimated kernel:\n {gp.covar_module}")
+print(f"\nEstimated kernel:\n {estimated_kernel_name}")
 print('MSE (train-test): ',mean_squared_error(mu, y_nonstand))
-print('MSE (test):       ',mean_squared_error(mu[end_train:-1], y_nonstand[end_train:-1]))
+print('MSE (test):       ',mean_squared_error(mu[end_train:-1],
+                                              y_nonstand[end_train:-1]))
 
 print("\nOpt kernel parameters:")
 print("Outputscale:", gp.covar_module.base_kernel.outputscale.item())
