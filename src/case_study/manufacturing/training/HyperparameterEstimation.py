@@ -214,7 +214,7 @@ class FineTune():
         # Function to initialise kernel parameters
     def init_hyper(self, gp: ExactGP) -> ExactGP:
         kernel = gp.covar_module
-        kernel.base_kernel.outputscale = torch.tensor(13.60)
+        kernel.base_kernel.outputscale = torch.tensor(self.os0)
 
         def set_params(k):
             if not isinstance(k, Lin):
@@ -223,9 +223,9 @@ class FineTune():
                                                                sigma=self.var) for d in range(D)])
                 if isinstance(k, RQ):
                     k.alpha = torch.tensor(random.gauss(mu=0.16,
-                                                        sigma=1e-4))
+                                                        sigma=1e-3))
                     k.lengthscale = torch.tensor([random.gauss(self.ls_rq0[0,d],
-                                                               sigma=0.2) for d in range(D)])
+                                                               sigma=0.24) for d in range(D)])
                 if isinstance(k, Per):
                     k.period_length = torch.tensor(random.gauss(mu=self.plength0,
                                                    sigma=self.var))
@@ -251,7 +251,7 @@ class FineTune():
 
         for i in range(self.N_sim):
             gp = SparseGP(X_train, y_train, likelihood, covar_module,
-                          torch.tensor(0.03))
+                          torch.tensor(self.nv0))
             gp = self.init_hyper(gp)
 
             # Train model
@@ -284,7 +284,7 @@ class FineTune():
 
             # check error
             if i > 1:
-                if mse_list[i] < 0.0014:
+                if mse_list[i] < 0.00145:
                     break
         return gp
 

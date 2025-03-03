@@ -237,7 +237,7 @@ def explore_kernels(levels):
     return best_kernel(), best_name
 
 # User-defined level of complexity
-level = 2
+level = 3
 
 # Explore kernel configurations
 estimated_kernel, estimated_kernel_name = explore_kernels(level)
