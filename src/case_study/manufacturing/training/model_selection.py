@@ -289,10 +289,9 @@ class Train():
 """
 
 class FineTune():
-    def __init__(self, gp0, var):
+    def __init__(self, gp0):
         super(FineTune, self).__init__()
         self.gp0 = gp0
-        self.var = var
         self.nv0 = self.gp0.likelihood.noise.item()
         self.random_start = True
 
@@ -305,7 +304,7 @@ class FineTune():
                 if isinstance(k, RBF):
                     self.ls_se0 = k.lengthscale
                 if isinstance(k, RQ):
-                    self.alpha0 = k.alpha
+                    self.alpha0 = k.alpha.clone().detach().item()
                     self.ls_rq0 = k.lengthscale
                 if isinstance(k, Per):
                     self.plength0 = k.period_length
@@ -322,23 +321,47 @@ class FineTune():
             kernel.base_kernel = set_params(kernel.base_kernel)
 
         # Function to initialise kernel parameters
-    def init_hyper(self, gp: ExactGP) -> ExactGP:
+    def init_hyper(self, gp: ExactGP,
+                   se_ls_std=None,
+                   alpha_std=None, rq_ls_std=None,
+                   plength_std=None) -> ExactGP:
         kernel = gp.covar_module
         kernel.base_kernel.outputscale = torch.tensor(self.os0)
 
         def set_params(k):
             if not isinstance(k, Lin):
                 if isinstance(k, RBF):
-                    k.lengthscale = torch.tensor([random.gauss(self.ls_se0[0,d],
-                                                               sigma=self.var) for d in range(D)])
+                    ls_se_array = np.zeros(shape=D)
+                    for d in range(D):
+                        ls = random.gauss(self.ls_se0[0,d], sigma=se_ls_std)
+                        if ls <= 1e-6:
+                            ls_se_array[d] = 1e-3
+                        else:
+                            ls_se_array[d] = ls
+                    k.lengthscale = ls_se_array
+                    
                 if isinstance(k, RQ):
-                    k.alpha = torch.tensor(random.gauss(mu=0.16,
-                                                        sigma=1e-3))
-                    k.lengthscale = torch.tensor([random.gauss(self.ls_rq0[0,d],
-                                                               sigma=0.24) for d in range(D)])
+                    k.alpha = torch.tensor(random.gauss(mu=self.alpha0,
+                                                        sigma=alpha_std))
+                    ls_rq_array = np.zeros(shape=D)
+                    for d in range(D):
+                        ls = random.gauss(self.ls_rq0[0,d], sigma=rq_ls_std)
+                        if ls <= 1e-6:
+                            ls_rq_array[d] = 1e-3
+                        else:
+                            ls_rq_array[d] = ls
+                    k.lengthscale = ls_rq_array
+
                 if isinstance(k, Per):
-                    k.period_length = torch.tensor(random.gauss(mu=self.plength0,
-                                                   sigma=self.var))
+                    pl_array = np.zeros(shape=D)
+                    for d in range(D):
+                        pl = random.gauss(self.plength0[0,d],
+                                          sigma=plength_std)
+                        if pl <= 1e-6:
+                            pl_array[d] = 1e-3
+                        else:
+                            pl_array[d] = pl
+                    k.period_length = pl_array
             return k
 
         # check number of operand kernels
@@ -354,7 +377,11 @@ class FineTune():
         gp.covar_module = kernel
         return gp
 
-    def tune(self, N_sim):
+    def tune(self, N_sim,
+             outputscale_std=None,
+             se_ls_std=None,
+             alpha_std=None, rq_ls_std=None,
+             plength_std=None):
         mse_list = np.zeros(shape=N_sim)
         mse_list[0] = float('inf')
         self.get_init_hyper()
@@ -362,7 +389,10 @@ class FineTune():
         for i in range(N_sim):
             gp = SparseGP(X_train, y_train, likelihood, covar_module,
                           torch.tensor(self.nv0))
-            gp = self.init_hyper(gp)
+            gp = self.init_hyper(gp,
+                                 se_ls_std,
+                                 alpha_std, rq_ls_std,
+                                 plength_std)
 
             # Train model
             gp.train()
@@ -409,8 +439,9 @@ class FineTune():
 #                    ls_rq_limits=[0.5, 90],
 #                    alpha_limits=[0.01, 2],
 #                    plength_limits=[0.1, 6])
-ft = FineTune(gp, 0.1)
-gp = ft.tune(N_sim=20)
+ft = FineTune(gp)
+gp = ft.tune(N_sim=250, se_ls_std=0.8,
+             rq_ls_std=0.25, alpha_std=1e-3)
 
 # *Induced points
 init_z_indices = np.arange(0, len(X_train.numpy()), step)
