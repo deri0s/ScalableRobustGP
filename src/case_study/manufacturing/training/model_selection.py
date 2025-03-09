@@ -440,7 +440,7 @@ class FineTune():
 #                    alpha_limits=[0.01, 2],
 #                    plength_limits=[0.1, 6])
 ft = FineTune(gp)
-gp = ft.tune(N_sim=250, se_ls_std=0.8,
+gp = ft.tune(N_sim=250, se_ls_std=0.1,
              rq_ls_std=0.25, alpha_std=1e-3)
 
 # *Induced points
