@@ -148,8 +148,7 @@ assert inducing_points[2, 0] == X_train[step+step, 0], 'Init induced not the sam
 # Model
 likelihood = GaussianLikelihood()
 
-k = ScaleKernel(RQ(ard_num_dims=D))
-# k = ScaleKernel(RBF(ard_num_dims=D) + RQ(ard_num_dims=D))
+k = ScaleKernel(RBF(ard_num_dims=D) + RQ(ard_num_dims=D))
 # k = ScaleKernel(RQ(ard_num_dims=D) * Per(ard_num_dims=D))
 covar_module = InducingPointKernel(k,
                                    inducing_points=inducing_points,
@@ -371,21 +370,21 @@ Trained model from manual training
 
 state_dict = torch.load('gp_state_RBF_plus_RQ_opt_step40.pth',
                         weights_only=False)
-gp = SparseGP(X_train, y_train, likelihood, covar_module, init_noise_var)
-gp.load_state_dict(state_dict)
+gp0 = SparseGP(X_train, y_train, likelihood, covar_module, init_noise_var)
+gp0.load_state_dict(state_dict)
 # gp.covar_module.base_kernel.base_kernel.kernels[1].alpha = 0.16
 
-print("Outputscale:", gp.covar_module.base_kernel.outputscale.item())
-print("RBF-LS:\n", gp.covar_module.base_kernel.base_kernel.kernels[0].lengthscale)
-print("RQ-LS:\n", gp.covar_module.base_kernel.base_kernel.kernels[1].lengthscale)
-print("RQ-alpha: ", gp.covar_module.base_kernel.base_kernel.kernels[1].alpha.item())
-print("Noise-var:", gp.likelihood.noise.item())
+print("Outputscale:", gp0.covar_module.base_kernel.outputscale.item())
+print("RBF-LS:\n", gp0.covar_module.base_kernel.base_kernel.kernels[0].lengthscale)
+print("RQ-LS:\n", gp0.covar_module.base_kernel.base_kernel.kernels[1].lengthscale)
+print("RQ-alpha: ", gp0.covar_module.base_kernel.base_kernel.kernels[1].alpha.item())
+print("Noise-var:", gp0.likelihood.noise.item())
 
 # Predictions
-gp.eval()
+gp0.eval()
 likelihood.eval()
 with torch.no_grad(), gpytorch.settings.fast_pred_var():
-    observed_pred = likelihood(gp(X_test))
+    observed_pred = likelihood(gp0(X_test))
 
     # Unormalise predictions
     pred_mean = observed_pred.mean
@@ -402,10 +401,16 @@ print('MSE (test):         ', mean_squared_error(mu[end_train:-1],
 """
     TEST classes
 """
-# gp = SparseGP(X_train, y_train, likelihood, covar_module, init_noise_var)
+k = ScaleKernel(RQ(ard_num_dims=D))
+covar_module = InducingPointKernel(k,
+                                   inducing_points=inducing_points,
+                                   likelihood=likelihood)
+gp = SparseGP(X_train, y_train, likelihood, covar_module, init_noise_var)
+gp.covar_module.base_kernel.outputscale = 5.4
+gp.covar_module.base_kernel.base_kernel.lengthscale = gp0.covar_module.base_kernel.base_kernel.kernels[1].lengthscale
+gp.covar_module.base_kernel.base_kernel.alpha = gp0.covar_module.base_kernel.base_kernel.kernels[1].alpha
 ft = FineTune(gp, outputscale_std=4, rq_ls_std=0.2, alpha_std=1e-3)
 gp = ft.tune(N_sim=250, mse_to_beat=0.0014)
-gp.covar_module.base_kernel.outputscale = 5.4
 
 # *Induced points
 init_z_indices = np.arange(0, len(X_train.numpy()), step)
