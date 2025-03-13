@@ -3,6 +3,7 @@ import copy
 import gpytorch
 import pandas as pd
 import numpy as np
+from numpy.random import uniform
 import random
 import yaml
 from sklearn.metrics import mean_squared_error
@@ -147,7 +148,8 @@ assert inducing_points[2, 0] == X_train[step+step, 0], 'Init induced not the sam
 # Model
 likelihood = GaussianLikelihood()
 
-k = ScaleKernel(RBF(ard_num_dims=D) + RQ(ard_num_dims=D))
+k = ScaleKernel(RQ(ard_num_dims=D))
+# k = ScaleKernel(RBF(ard_num_dims=D) + RQ(ard_num_dims=D))
 # k = ScaleKernel(RQ(ard_num_dims=D) * Per(ard_num_dims=D))
 covar_module = InducingPointKernel(k,
                                    inducing_points=inducing_points,
@@ -171,6 +173,9 @@ class SparseGP(ExactGP):
 
 class FineTune():
     def __init__(self, gp0,
+                 os_limits=None,
+                 se_ls_limits=None, rq_ls_limits=None,
+                 alpha_limits=None, plength_limits=None,
                  outputscale_std=None,
                  se_ls_std=None,
                  alpha_std=None, rq_ls_std=None,
@@ -180,6 +185,13 @@ class FineTune():
         self.kernel = self.gp0.covar_module
         self.nv0 = self.gp0.likelihood.noise.item()
         self.random_start = True
+
+        # Uniform distribution min-max values
+        self.os_limits = os_limits
+        self.se_ls_limits = se_ls_limits
+        self.rq_ls_limits = rq_ls_limits
+        self.alpha_limits = alpha_limits
+        self.plength_limits = plength_limits
 
         # Gaussian stds for each base kernel parameter
         self.outputscale_std = outputscale_std
@@ -194,13 +206,26 @@ class FineTune():
         if hasattr(self.kernel.base_kernel.base_kernel, 'kernels'):
             N_kernels = len(self.kernel.base_kernel.base_kernel.kernels)
             for i in range(N_kernels):
-                # print(f'\ndentro {kernel.base_kernel.base_kernel.kernels[i]}\n')
-                a = set_params(kernel.base_kernel.base_kernel.kernels[i])
-                # self.kernel.base_kernel.base_kernel.kernels[i] = set_params(kernel.base_kernel.base_kernel.kernels[i])
+                set_params(kernel.base_kernel.base_kernel.kernels[i])
         elif hasattr(self.kernel.base_kernel, 'base_kernel'):
-            self.kernel.base_kernel.base_kernel = set_params(kernel.base_kernel.base_kernel)
+            set_params(kernel.base_kernel.base_kernel)
         else:
-            self.kernel.base_kernel = set_params(kernel.base_kernel)
+            set_params(kernel.base_kernel)
+
+    def from_uniform(self, k):
+        if not isinstance(k, Lin):
+            if isinstance(k, RBF):
+                k.lengthscale = uniform(low=self.se_ls_limits[0],
+                                        high=self.se_ls_limits[1])
+            if isinstance(k, RQ):
+                k.alpha = torch.tensor(uniform(low=self.alpha_limits[0],
+                                               high=self.alpha_limits[1]))
+                k.lengthscale = uniform(low=self.rq_ls_limits[0],
+                                        high=self.rq_ls_limits[1])
+            if isinstance(k, Per):
+                k.period_length = uniform(low=self.plength_limits[0],
+                                          high=self.plength_limits[1])
+        return k
 
     def set_gauss_centres(self, k):
         if not isinstance(k, Lin):
@@ -213,7 +238,6 @@ class FineTune():
                 self.plength0 = k.period_length
 
     def from_gauss(self, k):
-        
         if not isinstance(k, Lin):
             if isinstance(k, RBF):
                 ls_se_array = np.zeros(shape=D)
@@ -249,26 +273,67 @@ class FineTune():
                     else:
                         pl_array[d] = pl
                 k.period_length = pl_array
-        return k
     
-    # def trainGP(self, gp: ExactGP) -> ExactGP:
-    #     gp.train()
-    #     gp.likelihood.train()
+    def trainGP(self, gp: ExactGP) -> ExactGP:
+        gp.train()
+        gp.likelihood.train()
 
-    #     optimizer = torch.optim.Adam(gp.parameters(), lr=0.01)
-    #     mll = ExactMarginalLogLikelihood(likelihood, gp)
+        optimizer = torch.optim.Adam(gp.parameters(), lr=0.01)
+        mll = ExactMarginalLogLikelihood(likelihood, gp)
 
-    #     training_iterations = 100
-    #     for count in range(training_iterations):
-    #         optimizer.zero_grad()
-    #         output = gp(X_train)
-    #         loss = -mll(output, y_train)
-    #         loss.backward()
-    #         optimizer.step()
+        training_iterations = 100
+        for count in range(training_iterations):
+            optimizer.zero_grad()
+            output = gp(X_train)
+            loss = -mll(output, y_train)
+            loss.backward()
+            optimizer.step()
         
-    #     return gp
+        return gp
+    
+    def grid_search(self, N_sim,
+                    os_limits=None,
+                    ls_se_limits=None, ls_rq_limits=None,
+                    alpha_limits=None, plength_limits=None):
+        gp = self.gp0
+        mse_list = np.zeros(shape=N_sim)
+        best_mse = float('inf')
+        best_gp = None
+        random_start = True
 
-    def tune(self, N_sim):
+        for i in range(N_sim):
+            print(f'Hyperparameter simulation: {i}/{N_sim}')
+
+            if random_start:
+                self.init_kernel(self.from_uniform, self.kernel)
+
+            # Train model
+            gp = self.trainGP(gp)
+
+            # Predictions
+            gp.eval()
+            likelihood.eval()
+            with torch.no_grad(), gpytorch.settings.fast_pred_var():
+                observed_pred = likelihood(gp(X_test))
+
+                # Unormalise predictions
+                pred_mean = observed_pred.mean
+                mu = scaler.inverse_transform(pred_mean.unsqueeze(1))[:,0]
+                mse = mean_squared_error(mu, y_nonstand)
+                mse_list[i] = mse
+                print('Error: ', mse, '\n')
+
+            # Check error and update best GP if necessary
+            if mse < best_mse:
+                best_mse = mse
+                best_gp = copy.deepcopy(gp)
+
+            # Adjust random start based on error improvement
+            random_start = mse >= best_mse
+
+        return best_gp, mse_list
+
+    def tune(self, N_sim, mse_to_beat):
         mse_list = np.zeros(shape=N_sim)
         mse_list[0] = float('inf')
         self.init_kernel(self.set_gauss_centres, self.kernel)
@@ -279,19 +344,7 @@ class FineTune():
             gp.covar_module = self.kernel
 
             # Train model
-            gp.train()
-            gp.likelihood.train()
-
-            optimizer = torch.optim.Adam(gp.parameters(), lr=0.01)
-            mll = ExactMarginalLogLikelihood(likelihood, gp)
-
-            training_iterations = 100
-            for count in range(training_iterations):
-                optimizer.zero_grad()
-                output = gp(X_train)
-                loss = -mll(output, y_train)
-                loss.backward()
-                optimizer.step()
+            gp = self.trainGP(gp)
 
             # Predictions
             gp.eval()
@@ -308,7 +361,7 @@ class FineTune():
 
             # check error
             if i > 1:
-                if mse_list[i] < 0.00145:
+                if mse_list[i] < mse_to_beat:
                     break
         return gp
     
@@ -319,8 +372,14 @@ Trained model from manual training
 state_dict = torch.load('gp_state_RBF_plus_RQ_opt_step40.pth',
                         weights_only=False)
 gp = SparseGP(X_train, y_train, likelihood, covar_module, init_noise_var)
-
 gp.load_state_dict(state_dict)
+# gp.covar_module.base_kernel.base_kernel.kernels[1].alpha = 0.16
+
+print("Outputscale:", gp.covar_module.base_kernel.outputscale.item())
+print("RBF-LS:\n", gp.covar_module.base_kernel.base_kernel.kernels[0].lengthscale)
+print("RQ-LS:\n", gp.covar_module.base_kernel.base_kernel.kernels[1].lengthscale)
+print("RQ-alpha: ", gp.covar_module.base_kernel.base_kernel.kernels[1].alpha.item())
+print("Noise-var:", gp.likelihood.noise.item())
 
 # Predictions
 gp.eval()
@@ -344,8 +403,9 @@ print('MSE (test):         ', mean_squared_error(mu[end_train:-1],
     TEST classes
 """
 # gp = SparseGP(X_train, y_train, likelihood, covar_module, init_noise_var)
-ft = FineTune(gp, se_ls_std=0.8, rq_ls_std=0.25, alpha_std=1e-3)
-gp = ft.tune(N_sim=250)
+ft = FineTune(gp, outputscale_std=4, rq_ls_std=0.2, alpha_std=1e-3)
+gp = ft.tune(N_sim=250, mse_to_beat=0.0014)
+gp.covar_module.base_kernel.outputscale = 5.4
 
 # *Induced points
 init_z_indices = np.arange(0, len(X_train.numpy()), step)
