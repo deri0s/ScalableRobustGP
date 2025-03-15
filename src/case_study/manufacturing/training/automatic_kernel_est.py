@@ -217,8 +217,8 @@ def get_best_kernel(kernels: dict) -> gpytorch.kernels:
 
 # Function to explore kernel configurations
 def explore_kernels(levels):
-    if levels == 0:
-        raise Exception("The number shouldn't be an odd integer")
+    if levels <= 0:
+        raise Exception("Non valid number of levels")
    
     combined = base_kernels
 

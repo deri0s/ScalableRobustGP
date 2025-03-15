@@ -91,11 +91,12 @@ READ ESTIMATED MODEL
 """
 
 # Read best hyperparameters and initialisation values from the yml file
-with open('config_RBF_plus_RQ_2_step40.yaml', 'r') as f:
-    config = yaml.safe_load(f)
+# with open('expert_main0.yaml', 'r') as f:
+#     config = yaml.safe_load(f)
 
-test_perc = config['test_percentage']
-init_noise_var = config['WN']['var']['optimal']
+test_perc = 0.12
+# init_noise_var = config['WN']['var']['optimal']
+init_noise_var = 0.02825
 
 X = X_df.values
 y_nonstand, date_time = y_df.gp_pred.values, y_df.date_time.values
@@ -134,25 +135,17 @@ Sparse GP
 """
 
 # Train and test data
-step = config['step']
-inducing_points = X_train[::step, :].clone()
+# step = config['step']
+# step = config['step']
+# inducing_points = X_train[::step, :].clone()
 
-# ! Ensure data is of shape [N, D]
-print(X_train.shape)            # Should be [N_train, D]
-print(inducing_points.shape)    # Should be [N_train/step, D]
-print(X_test.shape)             # Should be [N_test, D]
-print(y_train.shape)            # Should be [N_train]
+# # ! Ensure data is of shape [N, D]
+# print(X_train.shape)            # Should be [N_train, D]
+# print(inducing_points.shape)    # Should be [N_train/step, D]
+# print(X_test.shape)             # Should be [N_test, D]
+# print(y_train.shape)            # Should be [N_train]
 
-assert inducing_points[2, 0] == X_train[step+step, 0], 'Init induced not the same as in X_train'
-
-# Model
-likelihood = GaussianLikelihood()
-
-k = ScaleKernel(RBF(ard_num_dims=D) + RQ(ard_num_dims=D))
-# k = ScaleKernel(RQ(ard_num_dims=D) * Per(ard_num_dims=D))
-covar_module = InducingPointKernel(k,
-                                   inducing_points=inducing_points,
-                                   likelihood=likelihood)
+# assert inducing_points[2, 0] == X_train[step+step, 0], 'Init induced not the same as in X_train'
 
 class SparseGP(ExactGP):
     def __init__(self, train_x, train_y, likelihood, kernel, noise_var):
@@ -187,7 +180,7 @@ class FineTune():
         self.plength_limits = None
 
         # The tune method
-        self.outputscale_std = None
+        self.os_std = None
         self.se_ls_std = None
         self.alpha_std = None
         self.rq_ls_std = None
@@ -221,6 +214,9 @@ class FineTune():
         return k
 
     def set_gauss_centres(self, k):
+        if isinstance(self.kernel.base_kernel, ScaleKernel):
+            self.os0 = self.kernel.base_kernel.outputscale.item()
+
         if not isinstance(k, Lin):
             if isinstance(k, RBF):
                 self.ls_se0 = k.lengthscale
@@ -231,16 +227,18 @@ class FineTune():
                 self.plength0 = k.period_length
 
     def from_gauss(self, k):
+        if isinstance(self.kernel.base_kernel, ScaleKernel):
+            os = random.gauss(self.os0, sigma=self.os_std)
+            os = 1 if os <= 1e-6 else os
+            self.kernel.base_kernel.outputscale = os
+
         if not isinstance(k, Lin):
             if isinstance(k, RBF):
                 ls_se_array = np.zeros(shape=D)
                 for d in range(D):
                     ls = random.gauss(self.ls_se0[0,d],
                                       sigma=self.se_ls_std)
-                    if ls <= 1e-6:
-                        ls_se_array[d] = 1e-3
-                    else:
-                        ls_se_array[d] = ls
+                    ls_se_array[d] = 1e-3 if ls <= 1e-6 else ls
                 k.lengthscale = ls_se_array
                 
             if isinstance(k, RQ):
@@ -250,10 +248,7 @@ class FineTune():
                 for d in range(D):
                     ls = random.gauss(self.ls_rq0[0,d],
                                       sigma=self.rq_ls_std)
-                    if ls <= 1e-6:
-                        ls_rq_array[d] = 1e-3
-                    else:
-                        ls_rq_array[d] = ls
+                    ls_rq_array[d] = 1e-3 if ls <= 1e-6 else ls
                 k.lengthscale = ls_rq_array
 
             if isinstance(k, Per):
@@ -261,10 +256,7 @@ class FineTune():
                 for d in range(D):
                     pl = random.gauss(self.plength0[0,d],
                                       sigma=self.plength_std)
-                    if pl <= 1e-6:
-                        pl_array[d] = 1e-3
-                    else:
-                        pl_array[d] = pl
+                    pl_array[d] = 1e-3 if ls <= 1e-6 else pl
                 k.period_length = pl_array
     
     def trainGP(self, gp: ExactGP) -> ExactGP:
@@ -333,11 +325,11 @@ class FineTune():
         return best_gp, mse_list
 
     def tune(self, N_sim,
-             outputscale_std=None, se_ls_std=None, alpha_std=None, rq_ls_std=None,
+             os_std=None, se_ls_std=None, alpha_std=None, rq_ls_std=None,
              plength_std=None,
              mse_to_beat=1e-3):
         # Gaussian stds for each base kernel parameter
-        self.outputscale_std = outputscale_std
+        self.os_std = os_std
         self.se_ls_std = se_ls_std
         self.alpha_std = alpha_std
         self.rq_ls_std = rq_ls_std
@@ -348,6 +340,7 @@ class FineTune():
         best_mse = float('inf')
         self.init_kernel(self.set_gauss_centres, self.kernel)
         gp = copy.deepcopy(self.gp0)
+        best_gp = copy.deepcopy(self.gp0)
 
         for i in range(N_sim):
             self.init_kernel(self.from_gauss, self.kernel)
@@ -365,41 +358,46 @@ class FineTune():
                 # Unormalise predictions
                 pred_mean = observed_pred.mean
                 mu = scaler.inverse_transform(pred_mean.unsqueeze(1))[:,0]
-                mse = mean_squared_error(mu, y_nonstand)
+                # mse = mean_squared_error(mu, y_nonstand)
+                mse = mean_squared_error(mu[end_train:-1],
+                                         y_nonstand[end_train:-1])
                 mse_list[i] = mse
 
-            print(f'Hyper simulation: {i}/{N_sim}, Error: {round(mse_list[i], 5)}')
+            print(f'Simulation: {i}/{N_sim}, Error: {round(mse_list[i], 5)}',
+                  'Best error: ', round(best_mse, 5))
 
             # check error
             if i > 1:
                 if mse < mse_to_beat:
                     print('!! MSE successfully met the target MSE !!')
+                    best_gp = gp
                     break
                 else:
                     if mse < best_mse:
-                        best_mse = mse
-                    else:
-                        gp = copy.deepcopy(self.gp0)
-        return gp
+                        best_mse = copy.deepcopy(mse)
+                        best_gp = copy.deepcopy(gp)
+
+        return best_gp
     
 """
 Trained model from manual training
 """
 
-state_dict = torch.load('gp_state_RBF_plus_RQ_opt_step40.pth',
+state_dict = torch.load('expert_main0.pth',
                         weights_only=False)
 
 # Access the inducing points
 inducing_points = state_dict['covar_module.inducing_points']
 
+# # Model
+likelihood = GaussianLikelihood()
+
+k = ScaleKernel(RQ(ard_num_dims=D))
+covar_module = InducingPointKernel(k,
+                                   inducing_points=inducing_points,
+                                   likelihood=likelihood)
 gp0 = SparseGP(X_train, y_train, likelihood, covar_module, init_noise_var)
 gp0.load_state_dict(state_dict)
-
-print("Outputscale:", gp0.covar_module.base_kernel.outputscale.item())
-print("RBF-LS:\n", gp0.covar_module.base_kernel.base_kernel.kernels[0].lengthscale)
-print("RQ-LS:\n", gp0.covar_module.base_kernel.base_kernel.kernels[1].lengthscale)
-print("RQ-alpha: ", gp0.covar_module.base_kernel.base_kernel.kernels[1].alpha.item())
-print("Noise-var:", gp0.likelihood.noise.item())
 
 # Predictions
 gp0.eval()
@@ -427,18 +425,15 @@ covar_module = InducingPointKernel(k,
                                    inducing_points=inducing_points,
                                    likelihood=likelihood)
 gp = SparseGP(X_train, y_train, likelihood, covar_module, init_noise_var)
-gp.covar_module.base_kernel.outputscale = 5.4
-gp.covar_module.base_kernel.base_kernel.lengthscale = gp0.covar_module.base_kernel.base_kernel.kernels[1].lengthscale
-gp.covar_module.base_kernel.base_kernel.alpha = gp0.covar_module.base_kernel.base_kernel.kernels[1].alpha
+gp.covar_module.base_kernel.outputscale = gp0.covar_module.base_kernel.outputscale.item()
+gp.covar_module.base_kernel.base_kernel.lengthscale = gp0.covar_module.base_kernel.base_kernel.lengthscale
+gp.covar_module.base_kernel.base_kernel.alpha = gp0.covar_module.base_kernel.base_kernel.alpha.item()
 
 ft = FineTune(gp)
-gp = ft.tune(N_sim=250, outputscale_std=4, rq_ls_std=0.2, alpha_std=1e-3,
-             mse_to_beat=0.0014)
+gp = ft.tune(N_sim=100, os_std=1e-1, rq_ls_std=1e-1, alpha_std=1e-4,
+             mse_to_beat=0.0015)
 
-torch.save(gp.state_dict(), 'expert_main.pth')
-
-# *Induced points
-init_z_indices = np.arange(0, len(X_train.numpy()), step)
+# torch.save(gp.state_dict(), 'expert_main.pth')
 
 # Make sure the _z (induced inputs) are a subset of the X_train dataset
 _z = gp.covar_module.inducing_points.detach()
@@ -448,9 +443,6 @@ for z in _z:
     distances = torch.norm(X_train - z, dim=1)
     closest_index = torch.argmin(distances).item()
     _z_indices.append(closest_index)
-
-# check the z0 and z* are not the same
-assert ~np.all(list(init_z_indices == _z_indices)), 'induced not trained'
 
 # Predictions
 gp.eval()
@@ -496,17 +488,6 @@ plt.axvline(date_time[end_train-1], linestyle='--', linewidth=3,
 ax.set_xlabel(" Date-time", fontsize=14)
 ax.set_ylabel(" Fault density", fontsize=14)
 plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
-
-ax.vlines(
-    x=date_time[::step],
-    ymin=-2*stds.min(),
-    ymax=y_train.max().item(),
-    alpha=0.3,
-    linewidth=1.5,
-    ls='--',
-    label="z0",
-    color='grey'
-)
 
 # Induced points
 ax.vlines(
