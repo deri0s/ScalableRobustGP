@@ -171,33 +171,27 @@ class SparseGP(ExactGP):
 """
 
 class FineTune():
-    def __init__(self, gp0,
-                 os_limits=None,
-                 se_ls_limits=None, rq_ls_limits=None,
-                 alpha_limits=None, plength_limits=None,
-                 outputscale_std=None,
-                 se_ls_std=None,
-                 alpha_std=None, rq_ls_std=None,
-                 plength_std=None):
+    def __init__(self, gp0):
         super(FineTune, self).__init__()
         self.gp0 = gp0
         self.kernel = self.gp0.covar_module
         self.nv0 = self.gp0.likelihood.noise.item()
         self.random_start = True
 
-        # Uniform distribution min-max values
-        self.os_limits = os_limits
-        self.se_ls_limits = se_ls_limits
-        self.rq_ls_limits = rq_ls_limits
-        self.alpha_limits = alpha_limits
-        self.plength_limits = plength_limits
+        # Initialise class attributes tha will be updated in:
+        # The grid_search method
+        self.os_limits = None
+        self.se_ls_limits = None
+        self.rq_ls_limits = None
+        self.alpha_limits = None
+        self.plength_limits = None
 
-        # Gaussian stds for each base kernel parameter
-        self.outputscale_std = outputscale_std
-        self.se_ls_std = se_ls_std
-        self.alpha_std = alpha_std
-        self.rq_ls_std = rq_ls_std
-        self.plength_std = plength_std
+        # The tune method
+        self.outputscale_std = None
+        self.se_ls_std = None
+        self.alpha_std = None
+        self.rq_ls_std = None
+        self.plength_std = None
 
     def init_kernel(self, set_params, k):
         kernel = self.gp0.covar_module
@@ -290,11 +284,17 @@ class FineTune():
         
         return gp
     
-    def grid_search(self, N_sim,
-                    os_limits=None,
-                    ls_se_limits=None, ls_rq_limits=None,
-                    alpha_limits=None, plength_limits=None):
+    def grid_search(self, N_sim, os_limits=None, se_ls_limits=None,
+                    rq_ls_limits=None, alpha_limits=None, plength_limits=None):
         gp = self.gp0
+
+        # Uniform distribution min-max values
+        self.os_limits = os_limits
+        self.se_ls_limits = se_ls_limits
+        self.rq_ls_limits = rq_ls_limits
+        self.alpha_limits = alpha_limits
+        self.plength_limits = plength_limits
+
         mse_list = np.zeros(shape=N_sim)
         best_mse = float('inf')
         best_gp = None
@@ -332,9 +332,20 @@ class FineTune():
 
         return best_gp, mse_list
 
-    def tune(self, N_sim, mse_to_beat):
+    def tune(self, N_sim,
+             outputscale_std=None, se_ls_std=None, alpha_std=None, rq_ls_std=None,
+             plength_std=None,
+             mse_to_beat=1e-3):
+        # Gaussian stds for each base kernel parameter
+        self.outputscale_std = outputscale_std
+        self.se_ls_std = se_ls_std
+        self.alpha_std = alpha_std
+        self.rq_ls_std = rq_ls_std
+        self.plength_std = plength_std
+
         mse_list = np.zeros(shape=N_sim)
         mse_list[0] = float('inf')
+        best_mse = float('inf')
         self.init_kernel(self.set_gauss_centres, self.kernel)
         gp = copy.deepcopy(self.gp0)
 
@@ -354,14 +365,21 @@ class FineTune():
                 # Unormalise predictions
                 pred_mean = observed_pred.mean
                 mu = scaler.inverse_transform(pred_mean.unsqueeze(1))[:,0]
-                mse_list[i] = mean_squared_error(mu, y_nonstand)
+                mse = mean_squared_error(mu, y_nonstand)
+                mse_list[i] = mse
 
             print(f'Hyper simulation: {i}/{N_sim}, Error: {round(mse_list[i], 5)}')
 
             # check error
             if i > 1:
-                if mse_list[i] < mse_to_beat:
+                if mse < mse_to_beat:
+                    print('!! MSE successfully met the target MSE !!')
                     break
+                else:
+                    if mse < best_mse:
+                        best_mse = mse
+                    else:
+                        gp = copy.deepcopy(self.gp0)
         return gp
     
 """
@@ -370,9 +388,12 @@ Trained model from manual training
 
 state_dict = torch.load('gp_state_RBF_plus_RQ_opt_step40.pth',
                         weights_only=False)
+
+# Access the inducing points
+inducing_points = state_dict['covar_module.inducing_points']
+
 gp0 = SparseGP(X_train, y_train, likelihood, covar_module, init_noise_var)
 gp0.load_state_dict(state_dict)
-# gp.covar_module.base_kernel.base_kernel.kernels[1].alpha = 0.16
 
 print("Outputscale:", gp0.covar_module.base_kernel.outputscale.item())
 print("RBF-LS:\n", gp0.covar_module.base_kernel.base_kernel.kernels[0].lengthscale)
@@ -409,8 +430,12 @@ gp = SparseGP(X_train, y_train, likelihood, covar_module, init_noise_var)
 gp.covar_module.base_kernel.outputscale = 5.4
 gp.covar_module.base_kernel.base_kernel.lengthscale = gp0.covar_module.base_kernel.base_kernel.kernels[1].lengthscale
 gp.covar_module.base_kernel.base_kernel.alpha = gp0.covar_module.base_kernel.base_kernel.kernels[1].alpha
-ft = FineTune(gp, outputscale_std=4, rq_ls_std=0.2, alpha_std=1e-3)
-gp = ft.tune(N_sim=250, mse_to_beat=0.0014)
+
+ft = FineTune(gp)
+gp = ft.tune(N_sim=250, outputscale_std=4, rq_ls_std=0.2, alpha_std=1e-3,
+             mse_to_beat=0.0014)
+
+torch.save(gp.state_dict(), 'expert_main.pth')
 
 # *Induced points
 init_z_indices = np.arange(0, len(X_train.numpy()), step)
