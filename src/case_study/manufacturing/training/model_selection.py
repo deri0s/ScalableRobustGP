@@ -319,17 +319,24 @@ class ModelTraining():
         best_error = float('inf')
 
         for name, kernel in kernels.items():
-            test_error = self.grid_search(N_sim=self.N_sim,
-                                          os_limits=self.os_limits,
-                                          se_ls_limits=self.se_ls_limits,
-                                          rq_ls_limits=self.rq_ls_limits,
-                                          alpha_limits=self.alpha_limits,
-                                          plength_limits=self.plength_limits)
-            test_error = self.train_and_evaluate(kernel())
-            print(f"Kernel: {name}, Test Error: {test_error}")
+            # update kernel
+            caca = InducingPointKernel(ScaleKernel(kernel()),
+                                inducing_points=inducing_points,
+                                likelihood=likelihood)
+            # self.kernel = self.kernel.base_kernel(kernel())
+            self.gp0.covar_module = caca
 
-            if test_error < best_error:
-                best_error = test_error
+            mse_list = self.grid_search(N_sim=self.N_sim,
+                                        os_limits=self.os_limits,
+                                        se_ls_limits=self.se_ls_limits,
+                                        rq_ls_limits=self.rq_ls_limits,
+                                        alpha_limits=self.alpha_limits,
+                                        plength_limits=self.plength_limits)[1]
+            mse = min(mse_list)
+            print(f"Kernel: {name}, Test Error: {mse}")
+
+            if mse < best_error:
+                best_error = mse
                 best_kernel = kernel
                 best_name = name
         return best_kernel, best_name
@@ -499,17 +506,15 @@ print('MSE (test):         ', mean_squared_error(mu[end_train:-1],
 """
     TEST classes
 """
-k = ScaleKernel(RQ(ard_num_dims=D))
-covar_module = InducingPointKernel(k,
+pipeline = ModelTraining(gp0, y_nonstand)
+k = pipeline.auto_model_learn(levels=1, N_sim=10)[0]
+print('que devuelvo? \n', k)
+
+# k = ScaleKernel(RQ(ard_num_dims=D))
+covar_module = InducingPointKernel(ScaleKernel(k),
                                    inducing_points=inducing_points,
                                    likelihood=likelihood)
 gp = SparseGP(X_train, y_train, likelihood, covar_module, init_noise_var)
-gp.covar_module.base_kernel.outputscale = gp0.covar_module.base_kernel.outputscale.item()
-gp.covar_module.base_kernel.base_kernel.lengthscale = gp0.covar_module.base_kernel.base_kernel.lengthscale
-gp.covar_module.base_kernel.base_kernel.alpha = gp0.covar_module.base_kernel.base_kernel.alpha.item()
-
-pipeline = ModelTraining(gp, y_nonstand)
-gp = pipeline.auto_model_learn(levels=1, N_sim=10)
 
 # torch.save(gp.state_dict(), 'expert_main.pth')
 
