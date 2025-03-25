@@ -163,9 +163,10 @@ class SparseGP(ExactGP):
     FINE TUNE
 """
 
-class FineTune():
-    def __init__(self, gp0):
-        super(FineTune, self).__init__()
+class ModelTraining():
+    def __init__(self, gp0, y_test):
+        super(ModelTraining, self).__init__()
+        self.y_test = y_test
         self.gp0 = gp0
         self.kernel = self.gp0.covar_module
         self.nv0 = self.gp0.likelihood.noise.item()
@@ -294,7 +295,7 @@ class FineTune():
             pred_mean = observed_pred.mean
             mu = scaler.inverse_transform(pred_mean.unsqueeze(1))[:, 0]
 
-        test_error = mean_squared_error(mu, y_nonstand)
+        test_error = mean_squared_error(mu, self.y_test)
 
         return test_error
     
@@ -318,9 +319,12 @@ class FineTune():
         best_error = float('inf')
 
         for name, kernel in kernels.items():
-            test_error = self.grid_search(N_sim=100,
-                                          os_std=1e-1, rq_ls_std=1e-1, alpha_std=1e-4,
-                                          mse_to_beat=0.0015)
+            test_error = self.grid_search(N_sim=self.N_sim,
+                                          os_limits=self.os_limits,
+                                          se_ls_limits=self.se_ls_limits,
+                                          rq_ls_limits=self.rq_ls_limits,
+                                          alpha_limits=self.alpha_limits,
+                                          plength_limits=self.plength_limits)
             test_error = self.train_and_evaluate(kernel())
             print(f"Kernel: {name}, Test Error: {test_error}")
 
@@ -331,9 +335,18 @@ class FineTune():
         return best_kernel, best_name
 
     # Function to explore kernel configurations
-    def explore_kernels(self, levels, N_sim,
-                        os_limits=None, se_ls_limits=None,
-                        rq_ls_limits=None, alpha_limits=None, plength_limits=None):
+    def auto_model_learn(self, levels, N_sim=100,
+                        os_limits=[0.8, 10], se_ls_limits=[0.1, 100],
+                        rq_ls_limits=[0.1, 100], alpha_limits=[0.05, 2],
+                        plength_limits=[0.1, 6]):
+        
+        self.N_sim = N_sim
+        self.os_limits = os_limits
+        self.se_ls_limits = se_ls_limits
+        self.rq_ls_limits = rq_ls_limits
+        self.alpha_limits = alpha_limits
+        self.plength_limits = plength_limits
+        
         if levels <= 0:
             raise Exception("Non valid number of levels")
     
@@ -382,7 +395,18 @@ class FineTune():
                 mse_list[i] = mse
                 print('Error: ', mse, '\n')
 
-            # Check error and update best GP if necessary
+            # Modified
+            # if i > 1:
+            #     if mse < mse_to_beat:
+            #         print('!! MSE successfully met the target MSE !!')
+            #         best_gp = gp
+            #         break
+            #     else:
+            #         if mse < best_mse:
+            #             best_mse = copy.deepcopy(mse)
+            #             best_gp = copy.deepcopy(gp)
+
+            # original
             if mse < best_mse:
                 best_mse = mse
                 best_gp = copy.deepcopy(gp)
@@ -484,9 +508,8 @@ gp.covar_module.base_kernel.outputscale = gp0.covar_module.base_kernel.outputsca
 gp.covar_module.base_kernel.base_kernel.lengthscale = gp0.covar_module.base_kernel.base_kernel.lengthscale
 gp.covar_module.base_kernel.base_kernel.alpha = gp0.covar_module.base_kernel.base_kernel.alpha.item()
 
-ft = FineTune(gp)
-gp = ft.tune(N_sim=100, os_std=1e-1, rq_ls_std=1e-1, alpha_std=1e-4,
-             mse_to_beat=0.0015)
+pipeline = ModelTraining(gp, y_nonstand)
+gp = pipeline.auto_model_learn(levels=1, N_sim=10)
 
 # torch.save(gp.state_dict(), 'expert_main.pth')
 
