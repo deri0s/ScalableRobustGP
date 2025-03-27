@@ -208,6 +208,11 @@ class ModelTraining():
             set_params(kernel.base_kernel)
 
     def from_uniform(self, k):
+        if isinstance(self.kernel.base_kernel, ScaleKernel):
+            os = uniform(low=self.os_limits[0],
+                         high=self.os_limits[1])
+            self.kernel.base_kernel.outputscale = os
+
         if not isinstance(k, Lin):
             if isinstance(k, RBF):
                 k.lengthscale = uniform(low=self.se_ls_limits[0],
@@ -317,6 +322,7 @@ class ModelTraining():
         best_kernel = None
         best_name = None
         best_error = float('inf')
+        mse = float('inf')
 
         for name, kernel in kernels.items():
             # update kernel
@@ -326,26 +332,31 @@ class ModelTraining():
             # self.kernel = self.kernel.base_kernel(kernel())
             self.gp0.covar_module = caca
 
+            print(f"Kernel: {name}, Test Error: {mse}")
+
             mse_list = self.grid_search(N_sim=self.N_sim,
                                         os_limits=self.os_limits,
                                         se_ls_limits=self.se_ls_limits,
                                         rq_ls_limits=self.rq_ls_limits,
                                         alpha_limits=self.alpha_limits,
-                                        plength_limits=self.plength_limits)[1]
+                                        plength_limits=self.plength_limits,
+                                        mse_stop=self.mse_stop)[1]
             mse = min(mse_list)
-            print(f"Kernel: {name}, Test Error: {mse}")
 
             if mse < best_error:
                 best_error = mse
                 best_kernel = kernel
+                print('\nactualice: ', best_kernel())
                 best_name = name
+
         return best_kernel, best_name
 
     # Function to explore kernel configurations
     def auto_model_learn(self, levels, N_sim=100,
                         os_limits=[0.8, 10], se_ls_limits=[0.1, 100],
                         rq_ls_limits=[0.1, 100], alpha_limits=[0.05, 2],
-                        plength_limits=[0.1, 6]):
+                        plength_limits=[1e-2, 1e-3], nv_limits=[1e-2, 1e-3],
+                        mse_stop=1e-3):
         
         self.N_sim = N_sim
         self.os_limits = os_limits
@@ -353,6 +364,8 @@ class ModelTraining():
         self.rq_ls_limits = rq_ls_limits
         self.alpha_limits = alpha_limits
         self.plength_limits = plength_limits
+        self.nv_limits = nv_limits
+        self.mse_stop = mse_stop
         
         if levels <= 0:
             raise Exception("Non valid number of levels")
@@ -375,7 +388,8 @@ class ModelTraining():
         return best_kernel(), best_name
     
     def grid_search(self, N_sim, os_limits=None, se_ls_limits=None,
-                    rq_ls_limits=None, alpha_limits=None, plength_limits=None):
+                    rq_ls_limits=None, alpha_limits=None,
+                    plength_limits=None, mse_stop=1e-3):
         gp = self.gp0
 
         # Uniform distribution min-max values
@@ -394,6 +408,8 @@ class ModelTraining():
             print(f'Hyperparameter simulation: {i}/{N_sim}')
 
             if random_start:
+                gp.likelihood.noise = uniform(low=self.nv_limits[0],
+                                              high=self.nv_limits[1])
                 self.init_kernel(self.from_uniform, self.kernel)
 
                 # train and evaluate
@@ -403,20 +419,15 @@ class ModelTraining():
                 print('Error: ', mse, '\n')
 
             # Modified
-            # if i > 1:
-            #     if mse < mse_to_beat:
-            #         print('!! MSE successfully met the target MSE !!')
-            #         best_gp = gp
-            #         break
-            #     else:
-            #         if mse < best_mse:
-            #             best_mse = copy.deepcopy(mse)
-            #             best_gp = copy.deepcopy(gp)
-
-            # original
-            if mse < best_mse:
-                best_mse = mse
-                best_gp = copy.deepcopy(gp)
+            if i > 1:
+                if mse < mse_stop:
+                    print('!! MSE successfully met the target MSE !!')
+                    best_gp = gp
+                    break
+                else:
+                    if mse < best_mse:
+                        best_mse = copy.deepcopy(mse)
+                        best_gp = copy.deepcopy(gp)
 
             # Adjust random start based on error improvement
             random_start = mse >= best_mse
@@ -426,7 +437,7 @@ class ModelTraining():
     def tune(self, N_sim,
              os_std=None, se_ls_std=None, alpha_std=None, rq_ls_std=None,
              plength_std=None,
-             mse_to_beat=1e-3):
+             mse_stop=1e-3):
         # Gaussian stds for each base kernel parameter
         self.os_std = os_std
         self.se_ls_std = se_ls_std
@@ -454,7 +465,7 @@ class ModelTraining():
 
             # check error
             if i > 1:
-                if mse < mse_to_beat:
+                if mse < mse_stop:
                     print('!! MSE successfully met the target MSE !!')
                     best_gp = gp
                     break
@@ -506,8 +517,11 @@ print('MSE (test):         ', mean_squared_error(mu[end_train:-1],
 """
     TEST classes
 """
+
 pipeline = ModelTraining(gp0, y_nonstand)
-k = pipeline.auto_model_learn(levels=1, N_sim=10)[0]
+k = pipeline.auto_model_learn(levels=1, N_sim=100, os_limits=[1,1.5],
+                              nv_limits=[0.026, 0.028],
+                              mse_stop=0.005)[0]
 print('que devuelvo? \n', k)
 
 # k = ScaleKernel(RQ(ard_num_dims=D))
@@ -516,6 +530,12 @@ covar_module = InducingPointKernel(ScaleKernel(k),
                                    likelihood=likelihood)
 gp = SparseGP(X_train, y_train, likelihood, covar_module, init_noise_var)
 
+print("\nOptimised kernel parameters:")
+print("Outputscale:", gp.covar_module.base_kernel.outputscale.item())
+# print("RBF-LS:\n", gp.covar_module.base_kernel.base_kernel.kernels[1].lengthscale)
+# print("RQ-LS:\n", gp.covar_module.base_kernel.base_kernel.kernels[0].lengthscale)
+# print("RQ-alpha: ", gp.covar_module.base_kernel.base_kernel.kernels[0].alpha.item())
+print("Noise-var:", gp.likelihood.noise.item())
 # torch.save(gp.state_dict(), 'expert_main.pth')
 
 # Make sure the _z (induced inputs) are a subset of the X_train dataset
