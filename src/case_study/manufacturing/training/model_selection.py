@@ -163,11 +163,12 @@ class SparseGP(ExactGP):
     FINE TUNE
 """
 
-class ModelTraining():
+class GPTraining():
     def __init__(self, gp0, y_test):
-        super(ModelTraining, self).__init__()
+        super(GPTraining, self).__init__()
         self.y_test = y_test
         self.gp0 = gp0
+        self.N, self.D = np.shape(self.gp0.train_inputs[0])
         self.kernel = self.gp0.covar_module
         self.nv0 = self.gp0.likelihood.noise.item()
         self.random_start = True
@@ -176,7 +177,7 @@ class ModelTraining():
         self.base_kernels = {
             'RBF': lambda: RBF(ard_num_dims=D, dtype=floating_point),
             'RQ': lambda: RQ(ard_num_dims=D, dtype=floating_point),
-            'Lin': lambda: Lin(ard_num_dims=D, dtype=floating_point),
+            # 'Lin': lambda: Lin(ard_num_dims=D, dtype=floating_point),
             'Per': lambda: Per(ard_num_dims=D, dtype=floating_point)
             }
 
@@ -216,15 +217,18 @@ class ModelTraining():
         if not isinstance(k, Lin):
             if isinstance(k, RBF):
                 k.lengthscale = uniform(low=self.se_ls_limits[0],
-                                        high=self.se_ls_limits[1])
+                                        high=self.se_ls_limits[1],
+                                        size=self.D)
             if isinstance(k, RQ):
                 k.alpha = torch.tensor(uniform(low=self.alpha_limits[0],
                                                high=self.alpha_limits[1]))
                 k.lengthscale = uniform(low=self.rq_ls_limits[0],
-                                        high=self.rq_ls_limits[1])
+                                        high=self.rq_ls_limits[1],
+                                        size=self.D)
             if isinstance(k, Per):
                 k.period_length = uniform(low=self.plength_limits[0],
-                                          high=self.plength_limits[1])
+                                          high=self.plength_limits[1],
+                                          size=self.D)
         return k
 
     def set_gauss_centres(self, k):
@@ -332,21 +336,32 @@ class ModelTraining():
             # self.kernel = self.kernel.base_kernel(kernel())
             self.gp0.covar_module = caca
 
-            print(f"Kernel: {name}, Test Error: {mse}")
+            print(f"\nKernel: {name}, Test Error: {mse}")
 
-            mse_list = self.grid_search(N_sim=self.N_sim,
+            best_gp, mse_list = self.grid_search(N_sim=self.N_sim,
                                         os_limits=self.os_limits,
                                         se_ls_limits=self.se_ls_limits,
                                         rq_ls_limits=self.rq_ls_limits,
                                         alpha_limits=self.alpha_limits,
                                         plength_limits=self.plength_limits,
-                                        mse_stop=self.mse_stop)[1]
+                                        mse_stop=self.mse_stop)
             mse = min(mse_list)
 
+            if name == 'Per':
+                print('\n En Per')
+                print('os: ', self.gp0.covar_module.base_kernel.outputscale.item())
+                print('pl: ',
+                      self.gp0.covar_module.base_kernel.base_kernel.period_length)
+                print("Noise-var:", self.gp0.likelihood.noise.item())
+
+            print(f'mse: {mse} best-error: {best_error}')
             if mse < best_error:
-                best_error = mse
-                best_kernel = kernel
-                print('\nactualice: ', best_kernel())
+                best_error = copy.deepcopy(mse)
+                best_kernel = copy.deepcopy(best_gp.covar_module)
+                print('\nActualice: ', kernel())
+                print('os: ', best_gp.covar_module.base_kernel.outputscale.item())
+                print('ls: ', best_gp.covar_module.base_kernel.base_kernel.lengthscale)
+                print("Noise-var:", best_gp.likelihood.noise.item())
                 best_name = name
 
         return best_kernel, best_name
@@ -355,7 +370,7 @@ class ModelTraining():
     def auto_model_learn(self, levels, N_sim=100,
                         os_limits=[0.8, 10], se_ls_limits=[0.1, 100],
                         rq_ls_limits=[0.1, 100], alpha_limits=[0.05, 2],
-                        plength_limits=[1e-2, 1e-3], nv_limits=[1e-2, 1e-3],
+                        plength_limits=[1e-1, 5], nv_limits=[1e-2, 1e-3],
                         mse_stop=1e-3):
         
         self.N_sim = N_sim
@@ -385,7 +400,7 @@ class ModelTraining():
                 else:
                     best_kernel, best_name = self.get_best_kernel(combined)
 
-        return best_kernel(), best_name
+        return best_kernel, best_name
     
     def grid_search(self, N_sim, os_limits=None, se_ls_limits=None,
                     rq_ls_limits=None, alpha_limits=None,
@@ -518,17 +533,15 @@ print('MSE (test):         ', mean_squared_error(mu[end_train:-1],
     TEST classes
 """
 
-pipeline = ModelTraining(gp0, y_nonstand)
-k = pipeline.auto_model_learn(levels=1, N_sim=100, os_limits=[1,1.5],
+pipeline = GPTraining(gp0, y_nonstand)
+k = pipeline.auto_model_learn(levels=1, N_sim=150, os_limits=[1,3.5],
+                              plength_limits=[1e-1, 3.5],
                               nv_limits=[0.026, 0.028],
                               mse_stop=0.005)[0]
-print('que devuelvo? \n', k)
+print('\nque devuelvo? \n', k)
+print('luego: ', k.lengthscale)
 
-# k = ScaleKernel(RQ(ard_num_dims=D))
-covar_module = InducingPointKernel(ScaleKernel(k),
-                                   inducing_points=inducing_points,
-                                   likelihood=likelihood)
-gp = SparseGP(X_train, y_train, likelihood, covar_module, init_noise_var)
+gp = SparseGP(X_train, y_train, likelihood, k, init_noise_var)
 
 print("\nOptimised kernel parameters:")
 print("Outputscale:", gp.covar_module.base_kernel.outputscale.item())
