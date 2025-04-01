@@ -176,9 +176,9 @@ class GPTraining():
         # covariance functions building blocks
         self.base_kernels = {
             'RBF': lambda: RBF(ard_num_dims=D, dtype=floating_point),
-            'RQ': lambda: RQ(ard_num_dims=D, dtype=floating_point),
+            'RQ': lambda: RQ(ard_num_dims=D, dtype=floating_point)
             # 'Lin': lambda: Lin(ard_num_dims=D, dtype=floating_point),
-            'Per': lambda: Per(ard_num_dims=D, dtype=floating_point)
+            # 'Per': lambda: Per(ard_num_dims=D, dtype=floating_point)
             }
 
         # Initialise class attributes tha will be updated in:
@@ -322,19 +322,18 @@ class GPTraining():
             combined.append(base_name)
         return new
 
-    def get_best_kernel(self, kernels: dict) -> gpytorch.kernels:
+    def get_best_kernel(self, kernels: dict) -> tuple:
         best_kernel = None
         best_name = None
-        best_error = float('inf')
+        best_error = float('inf') # Reset per-call for level comparison
         mse = float('inf')
 
         for name, kernel in kernels.items():
             # update kernel
-            caca = InducingPointKernel(ScaleKernel(kernel()),
+            basek = InducingPointKernel(ScaleKernel(kernel()),
                                 inducing_points=inducing_points,
                                 likelihood=likelihood)
-            # self.kernel = self.kernel.base_kernel(kernel())
-            self.gp0.covar_module = caca
+            self.gp0.covar_module = basek
 
             print(f"\nKernel: {name}, Test Error: {mse}")
 
@@ -346,25 +345,15 @@ class GPTraining():
                                         plength_limits=self.plength_limits,
                                         mse_stop=self.mse_stop)
             mse = min(mse_list)
+            print('errors: \n', mse_list)
 
-            if name == 'Per':
-                print('\n En Per')
-                print('os: ', self.gp0.covar_module.base_kernel.outputscale.item())
-                print('pl: ',
-                      self.gp0.covar_module.base_kernel.base_kernel.period_length)
-                print("Noise-var:", self.gp0.likelihood.noise.item())
-
-            print(f'mse: {mse} best-error: {best_error}')
             if mse < best_error:
+                print(f'\n Local\nmse: {mse} best-error: {best_error}')
                 best_error = copy.deepcopy(mse)
                 best_kernel = copy.deepcopy(best_gp.covar_module)
-                print('\nActualice: ', kernel())
-                print('os: ', best_gp.covar_module.base_kernel.outputscale.item())
-                print('ls: ', best_gp.covar_module.base_kernel.base_kernel.lengthscale)
-                print("Noise-var:", best_gp.likelihood.noise.item())
                 best_name = name
 
-        return best_kernel, best_name
+        return best_kernel, best_name, best_error
 
     # Function to explore kernel configurations
     def auto_model_learn(self, levels, N_sim=100,
@@ -381,6 +370,9 @@ class GPTraining():
         self.plength_limits = plength_limits
         self.nv_limits = nv_limits
         self.mse_stop = mse_stop
+
+        final_best_error = float('inf')
+        final_best_kernel = None
         
         if levels <= 0:
             raise Exception("Non valid number of levels")
@@ -390,17 +382,31 @@ class GPTraining():
         for level in range(levels):
             print(f"\nExploring level {level + 1} kernels...")
             if level <= 0:
-                best_kernel, best_name = self.get_best_kernel(combined)
+                # Get current level's best
+                ckernel, cname, cerror = self.get_best_kernel(combined)
+                # best_kernel, best_name = self.get_best_kernel(combined)
             else:
                 combined = self.combine_kernels(self.base_kernels, "+", combined)
                 if level < 2:
                     combined.update(self.combine_kernels(self.base_kernels, "*",
                                                          self.base_kernels))
-                    best_kernel, best_name = self.get_best_kernel(combined)
+                    ckernel, cname, cerror = self.get_best_kernel(combined)
+                    # best_kernel, best_name = self.get_best_kernel(combined)
                 else:
-                    best_kernel, best_name = self.get_best_kernel(combined)
+                    ckernel, cname, cerror = self.get_best_kernel(combined)
+                    # best_kernel, best_name = self.get_best_kernel(combined)
+                
+            # Update overall best if improvement found
+            print(f'\nGlobal \nmse: {cerror} best-error: {final_best_error}')
+            if cerror < final_best_error:
+                final_best_error = copy.deepcopy(cerror)
+                final_best_kernel = copy.deepcopy(ckernel)
 
-        return best_kernel, best_name
+                print('\nActualice: ', ckernel.base_kernel.base_kernel)
+                print('os: ', final_best_kernel.base_kernel.outputscale.item())
+                print('ls: ', final_best_kernel.base_kernel.base_kernel.lengthscale)
+
+        return final_best_kernel
     
     def grid_search(self, N_sim, os_limits=None, se_ls_limits=None,
                     rq_ls_limits=None, alpha_limits=None,
@@ -414,7 +420,8 @@ class GPTraining():
         self.alpha_limits = alpha_limits
         self.plength_limits = plength_limits
 
-        mse_list = np.zeros(shape=N_sim)
+        # avoid 0.0 errors when random_start = False
+        mse_list = np.ones(shape=N_sim)
         best_mse = float('inf')
         best_gp = None
         random_start = True
@@ -433,7 +440,7 @@ class GPTraining():
                 mse_list[i] = mse
                 print('Error: ', mse, '\n')
 
-            # Modified
+            # update best MSE
             if i > 1:
                 if mse < mse_stop:
                     print('!! MSE successfully met the target MSE !!')
@@ -534,12 +541,12 @@ print('MSE (test):         ', mean_squared_error(mu[end_train:-1],
 """
 
 pipeline = GPTraining(gp0, y_nonstand)
-k = pipeline.auto_model_learn(levels=1, N_sim=150, os_limits=[1,3.5],
+k = pipeline.auto_model_learn(levels=1, N_sim=300, os_limits=[1,3.5],
                               plength_limits=[1e-1, 3.5],
                               nv_limits=[0.026, 0.028],
-                              mse_stop=0.005)[0]
+                              mse_stop=0.003)
 print('\nque devuelvo? \n', k)
-print('luego: ', k.lengthscale)
+print('ls: ', k.lengthscale)
 
 gp = SparseGP(X_train, y_train, likelihood, k, init_noise_var)
 
