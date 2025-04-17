@@ -5,7 +5,6 @@ import pandas as pd
 import numpy as np
 from numpy.random import uniform
 import random
-import yaml
 from sklearn.metrics import mean_squared_error
 from sklearn.preprocessing import StandardScaler as ss
 from matplotlib import pyplot as plt
@@ -29,7 +28,7 @@ X_df = pd.read_excel(file, sheet_name='X_stand')
 y_df = pd.read_excel(file, sheet_name='y_nonstand')
 t_df = pd.read_excel(file, sheet_name='timelags')
 
-# drop Tewwl position
+# drop tweel position
 X_df.drop(columns=['9282 Tweel Position'], inplace=True)
 t_df.drop(columns=['9282 Tweel Position'], inplace=True)
 
@@ -38,7 +37,7 @@ t_df.drop(columns=['9282 Tweel Position'], inplace=True)
 """
 
 def align_inputs(x_df, y_df, t_series):
-    # ! Always close/Deep copy
+    # ! Always clone/Deep copy
     xdeep = x_df.copy()
     ydeep = y_df.copy()
     max_lag = int(max(t_series))
@@ -95,7 +94,6 @@ READ ESTIMATED MODEL
 #     config = yaml.safe_load(f)
 
 test_perc = 0.12
-# init_noise_var = config['WN']['var']['optimal']
 init_noise_var = 0.02825
 
 X = X_df.values
@@ -160,7 +158,9 @@ class SparseGP(ExactGP):
         return MultivariateNormal(mean_x, covar_x)
 
 """
-    FINE TUNE
+    Automatic model selection (learning) for GP regression using a tree-like
+    search, similar to the approach showed in "Automatic Model Construction
+    with Gaussian Process Regression" by David Kristjanson Duvenaud 2014.
 """
 
 class GPTraining():
@@ -182,14 +182,14 @@ class GPTraining():
             }
 
         # Initialise class attributes tha will be updated in:
-        # The grid_search method
+        # the grid_search method
         self.os_limits = None
         self.se_ls_limits = None
         self.rq_ls_limits = None
         self.alpha_limits = None
         self.plength_limits = None
 
-        # The tune method
+        # the tune method
         self.os_std = None
         self.se_ls_std = None
         self.alpha_std = None
@@ -209,6 +209,7 @@ class GPTraining():
             set_params(kernel.base_kernel)
 
     def from_uniform(self, k):
+        """ sample kernel parameters from a Uniform distribution """
         if isinstance(self.kernel.base_kernel, ScaleKernel):
             os = uniform(low=self.os_limits[0],
                          high=self.os_limits[1])
@@ -232,6 +233,9 @@ class GPTraining():
         return k
 
     def set_gauss_centres(self, k):
+        """ Initialise kernel parameters when sampling them from a
+            Gaussian distribution (e.i. when fine tunning the GP)
+        """
         if isinstance(self.kernel.base_kernel, ScaleKernel):
             self.os0 = self.kernel.base_kernel.outputscale.item()
 
@@ -245,6 +249,7 @@ class GPTraining():
                 self.plength0 = k.period_length
 
     def from_gauss(self, k):
+        """ sample kernel parameters from a Gaussian distribution """
         if isinstance(self.kernel.base_kernel, ScaleKernel):
             os = random.gauss(self.os0, sigma=self.os_std)
             os = 1 if os <= 1e-6 else os
@@ -255,7 +260,7 @@ class GPTraining():
                 ls_se_array = np.zeros(shape=D)
                 for d in range(D):
                     ls = random.gauss(self.ls_se0[0,d],
-                                      sigma=self.se_ls_std)
+                                      sigma=self.se_ls_std[d])
                     ls_se_array[d] = 1e-3 if ls <= 1e-6 else ls
                 k.lengthscale = ls_se_array
                 
@@ -265,7 +270,7 @@ class GPTraining():
                 ls_rq_array = np.zeros(shape=D)
                 for d in range(D):
                     ls = random.gauss(self.ls_rq0[0,d],
-                                      sigma=self.rq_ls_std)
+                                      sigma=self.rq_ls_std[d])
                     ls_rq_array[d] = 1e-3 if ls <= 1e-6 else ls
                 k.lengthscale = ls_rq_array
 
@@ -273,7 +278,7 @@ class GPTraining():
                 pl_array = np.zeros(shape=D)
                 for d in range(D):
                     pl = random.gauss(self.plength0[0,d],
-                                      sigma=self.plength_std)
+                                      sigma=self.plength_std[d])
                     pl_array[d] = 1e-3 if ls <= 1e-6 else pl
                 k.period_length = pl_array
 
@@ -324,7 +329,6 @@ class GPTraining():
 
     def get_best_kernel(self, kernels: dict) -> tuple:
         best_kernel = None
-        best_name = None
         best_error = float('inf') # Reset per-call for level comparison
         mse = float('inf')
 
@@ -332,7 +336,7 @@ class GPTraining():
             # update kernel
             basek = InducingPointKernel(ScaleKernel(kernel()),
                                 inducing_points=inducing_points,
-                                likelihood=likelihood)
+                                likelihood=likelihood) # base-kernel
             self.gp0.covar_module = basek
 
             print(f"\nKernel: {name}, Test Error: {mse}")
@@ -351,12 +355,11 @@ class GPTraining():
                 print(f'\n Local\nmse: {mse} best-error: {best_error}')
                 best_error = copy.deepcopy(mse)
                 best_kernel = copy.deepcopy(best_gp.covar_module)
-                best_name = name
 
-        return best_kernel, best_name, best_error
+        return best_kernel, best_error
 
     # Function to explore kernel configurations
-    def auto_model_learn(self, levels, N_sim=100,
+    def auto_model_cons(self, levels, N_sim=100,
                         os_limits=[0.8, 10], se_ls_limits=[0.1, 100],
                         rq_ls_limits=[0.1, 100], alpha_limits=[0.05, 2],
                         plength_limits=[1e-1, 5], nv_limits=[1e-2, 1e-3],
@@ -382,27 +385,24 @@ class GPTraining():
         for level in range(levels):
             print(f"\nExploring level {level + 1} kernels...")
             if level <= 0:
-                # Get current level's best
-                ckernel, cname, cerror = self.get_best_kernel(combined)
-                # best_kernel, best_name = self.get_best_kernel(combined)
+                # Get current level's best kernel
+                kernel_comb, error = self.get_best_kernel(combined)
             else:
                 combined = self.combine_kernels(self.base_kernels, "+", combined)
                 if level < 2:
                     combined.update(self.combine_kernels(self.base_kernels, "*",
                                                          self.base_kernels))
-                    ckernel, cname, cerror = self.get_best_kernel(combined)
-                    # best_kernel, best_name = self.get_best_kernel(combined)
+                    kernel_comb, error = self.get_best_kernel(combined)
                 else:
-                    ckernel, cname, cerror = self.get_best_kernel(combined)
-                    # best_kernel, best_name = self.get_best_kernel(combined)
+                    kernel_comb, error = self.get_best_kernel(combined)
                 
-            # Update overall best if improvement found
-            print(f'\nGlobal \nmse: {cerror} best-error: {final_best_error}')
-            if cerror < final_best_error:
-                final_best_error = copy.deepcopy(cerror)
-                final_best_kernel = copy.deepcopy(ckernel)
+            # Update overall best kernel if improvement found
+            print(f'\nGlobal \nmse: {error} best-error: {final_best_error}')
+            if error < final_best_error:
+                final_best_error = copy.deepcopy(error)
+                final_best_kernel = copy.deepcopy(kernel_comb)
 
-                print('\nActualice: ', ckernel.base_kernel.base_kernel)
+                print('\nActualice: ', kernel_comb.base_kernel.base_kernel)
                 print('os: ', final_best_kernel.base_kernel.outputscale.item())
                 print('ls: ', final_best_kernel.base_kernel.base_kernel.lengthscale)
 
@@ -441,7 +441,7 @@ class GPTraining():
                 print('Error: ', mse, '\n')
 
             # update best MSE
-            if i > 1:
+            if i > 0:
                 if mse < mse_stop:
                     print('!! MSE successfully met the target MSE !!')
                     best_gp = gp
@@ -457,8 +457,8 @@ class GPTraining():
         return best_gp, mse_list
 
     def tune(self, N_sim,
-             os_std=None, se_ls_std=None, alpha_std=None, rq_ls_std=None,
-             plength_std=None,
+             os_std=1e-3, se_ls_std=1e-3, alpha_std=1e-3, rq_ls_std=1e-3,
+             plength_std=None, nv_std = 1e-3,
              mse_stop=1e-3):
         # Gaussian stds for each base kernel parameter
         self.os_std = os_std
@@ -466,6 +466,7 @@ class GPTraining():
         self.alpha_std = alpha_std
         self.rq_ls_std = rq_ls_std
         self.plength_std = plength_std
+        self.nv_std = nv_std
 
         mse_list = np.zeros(shape=N_sim)
         mse_list[0] = float('inf')
@@ -478,6 +479,11 @@ class GPTraining():
             self.init_kernel(self.from_gauss, self.kernel)
             gp.covar_module = self.kernel
 
+            # sample noise variance (nv) from a Gaussian distribution
+            nv = random.gauss(gp.likelihood.noise.item(), self.nv_std)
+            nv = 1e-3 if nv <= 1e-6 else nv # avoid negative nv values
+            gp.likelihood.noise = nv
+
             # Train and evaluate
             mse = self.train_and_evaluate(gp)
             mse_list[i] = mse
@@ -486,7 +492,7 @@ class GPTraining():
                   'Best error: ', round(best_mse, 5))
 
             # check error
-            if i > 1:
+            if i > 0:
                 if mse < mse_stop:
                     print('!! MSE successfully met the target MSE !!')
                     best_gp = gp
@@ -499,11 +505,11 @@ class GPTraining():
         return best_gp
     
 """
-Trained model from manual training
+Load trained model from manual training to test the Automatic Model Construction
+performance
 """
 
-state_dict = torch.load('expert_main0.pth',
-                        weights_only=False)
+state_dict = torch.load('expert_main0.pth', weights_only=False)
 
 # Access the inducing points
 inducing_points = state_dict['covar_module.inducing_points']
@@ -537,23 +543,52 @@ print('MSE (test):         ', mean_squared_error(mu[end_train:-1],
                                                  y_nonstand[end_train:-1]))
 
 """
-    TEST classes
+    TEST: Automatic Model Construction model
 """
 
-pipeline = GPTraining(gp0, y_nonstand)
-k = pipeline.auto_model_learn(levels=1, N_sim=300, os_limits=[1,3.5],
-                              plength_limits=[1e-1, 3.5],
-                              nv_limits=[0.026, 0.028],
-                              mse_stop=0.003)
-print('\nque devuelvo? \n', k)
+grid_search = GPTraining(gp0, y_nonstand)
+k = grid_search.auto_model_cons(levels=1, N_sim=30, os_limits=[1,3.5],
+                                plength_limits=[1e-1, 3.5],
+                                nv_limits=[0.026, 0.028],
+                                mse_stop=0.003)
+print('\nEstimated kernel \n', k)
 print('ls: ', k.lengthscale)
 
 gp = SparseGP(X_train, y_train, likelihood, k, init_noise_var)
 
-print("\nOptimised kernel parameters:")
+print("\nGrid Search kernel parameters:")
 print("Outputscale:", gp.covar_module.base_kernel.outputscale.item())
 # print("RBF-LS:\n", gp.covar_module.base_kernel.base_kernel.kernels[1].lengthscale)
 # print("RQ-LS:\n", gp.covar_module.base_kernel.base_kernel.kernels[0].lengthscale)
+# print("RQ-alpha: ", gp.covar_module.base_kernel.base_kernel.kernels[0].alpha.item())
+print("Noise-var:", gp.likelihood.noise.item())
+
+def generate_stds(lengthscales, base_std_dev):
+    """ Penalise lengthscales that are high using a greater std """
+
+    # Ensure lengthscales is a torch tensor
+    if not torch.is_tensor(lengthscales):
+        lengthscales = torch.tensor(lengthscales)
+    
+    # Find the minimum lengthscale
+    min_lengthscale = torch.min(lengthscales)
+    
+    # Calculate the standard deviations for each Gaussian distribution
+    std_devs = base_std_dev * torch.exp((lengthscales - min_lengthscale)/6)
+    std_devs = torch.tensor([300 if std == torch.inf else std for std in std_devs])
+    
+    return std_devs
+
+# update GPTraining class GP using the kernel obtained in the grid search task
+fine = GPTraining(gp0, y_nonstand)
+ls_stds = generate_stds(gp0.covar_module.base_kernel.base_kernel.lengthscale.squeeze(),
+                        base_std_dev=1e-4)
+gp = fine.tune(N_sim=300, rq_ls_std=ls_stds)
+
+print("\nFine Tune kernel parameters:")
+print("Outputscale:", gp.covar_module.base_kernel.outputscale.item())
+# print("RBF-LS:\n", gp.covar_module.base_kernel.base_kernel.kernels[1].lengthscale)
+print("RQ-LS:\n", gp.covar_module.base_kernel.base_kernel.lengthscale.squeeze().tolist())
 # print("RQ-alpha: ", gp.covar_module.base_kernel.base_kernel.kernels[0].alpha.item())
 print("Noise-var:", gp.likelihood.noise.item())
 # torch.save(gp.state_dict(), 'expert_main.pth')
@@ -581,7 +616,7 @@ lower_stand, upper_stand = observed_pred.confidence_region()
 lower = scaler.inverse_transform(lower_stand.unsqueeze(1))[:,0]
 upper = scaler.inverse_transform(upper_stand.unsqueeze(1))[:,0]
 
-print('MSE (train-test): ',mean_squared_error(mu, y_nonstand))
+print('\nMSE (train-test): ',mean_squared_error(mu, y_nonstand))
 print('MSE (test):       ',mean_squared_error(mu[end_train:-1],
                                               y_nonstand[end_train:-1]))
 
