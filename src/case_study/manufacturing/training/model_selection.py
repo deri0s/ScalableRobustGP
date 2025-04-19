@@ -1,6 +1,7 @@
 import torch
 import copy
 import gpytorch
+import time
 import pandas as pd
 import numpy as np
 from numpy.random import uniform
@@ -408,7 +409,7 @@ class GPTraining():
 
         return final_best_kernel
     
-    def grid_search(self, N_sim, os_limits=None, se_ls_limits=None,
+    def grid_search(self, N_sim, os_limits=None, se_ls_limits=[0.0, 100],
                     rq_ls_limits=None, alpha_limits=None,
                     plength_limits=None, mse_stop=1e-3):
         gp = self.gp0
@@ -426,6 +427,7 @@ class GPTraining():
         best_gp = None
         random_start = True
 
+        start_time = time.time()
         for i in range(N_sim):
             print(f'Hyperparameter simulation: {i}/{N_sim}')
 
@@ -453,6 +455,8 @@ class GPTraining():
 
             # Adjust random start based on error improvement
             random_start = mse >= best_mse
+            end_time = time.time() - start_time
+            print('Comp time InducingPoint: ', end_time)
 
         return best_gp, mse_list
 
@@ -547,7 +551,7 @@ print('MSE (test):         ', mean_squared_error(mu[end_train:-1],
 """
 
 grid_search = GPTraining(gp0, y_nonstand)
-k = grid_search.auto_model_cons(levels=1, N_sim=30, os_limits=[1,3.5],
+k = grid_search.auto_model_cons(levels=1, N_sim=2, os_limits=[1,3.5],
                                 plength_limits=[1e-1, 3.5],
                                 nv_limits=[0.026, 0.028],
                                 mse_stop=0.003)
@@ -563,101 +567,101 @@ print("Outputscale:", gp.covar_module.base_kernel.outputscale.item())
 # print("RQ-alpha: ", gp.covar_module.base_kernel.base_kernel.kernels[0].alpha.item())
 print("Noise-var:", gp.likelihood.noise.item())
 
-def generate_stds(lengthscales, base_std_dev):
-    """ Penalise lengthscales that are high using a greater std """
+# def generate_stds(lengthscales, base_std_dev):
+#     """ Penalise lengthscales that are high using a greater std """
 
-    # Ensure lengthscales is a torch tensor
-    if not torch.is_tensor(lengthscales):
-        lengthscales = torch.tensor(lengthscales)
+#     # Ensure lengthscales is a torch tensor
+#     if not torch.is_tensor(lengthscales):
+#         lengthscales = torch.tensor(lengthscales)
     
-    # Find the minimum lengthscale
-    min_lengthscale = torch.min(lengthscales)
+#     # Find the minimum lengthscale
+#     min_lengthscale = torch.min(lengthscales)
     
-    # Calculate the standard deviations for each Gaussian distribution
-    std_devs = base_std_dev * torch.exp((lengthscales - min_lengthscale)/6)
-    std_devs = torch.tensor([300 if std == torch.inf else std for std in std_devs])
+#     # Calculate the standard deviations for each Gaussian distribution
+#     std_devs = base_std_dev * torch.exp((lengthscales - min_lengthscale)/6)
+#     std_devs = torch.tensor([300 if std == torch.inf else std for std in std_devs])
     
-    return std_devs
+#     return std_devs
 
-# update GPTraining class GP using the kernel obtained in the grid search task
-fine = GPTraining(gp0, y_nonstand)
-ls_stds = generate_stds(gp0.covar_module.base_kernel.base_kernel.lengthscale.squeeze(),
-                        base_std_dev=1e-4)
-gp = fine.tune(N_sim=300, rq_ls_std=ls_stds)
+# # update GPTraining class GP using the kernel obtained in the grid search task
+# fine = GPTraining(gp0, y_nonstand)
+# ls_stds = generate_stds(gp0.covar_module.base_kernel.base_kernel.lengthscale.squeeze(),
+#                         base_std_dev=1e-4)
+# gp = fine.tune(N_sim=300, rq_ls_std=ls_stds)
 
-print("\nFine Tune kernel parameters:")
-print("Outputscale:", gp.covar_module.base_kernel.outputscale.item())
-# print("RBF-LS:\n", gp.covar_module.base_kernel.base_kernel.kernels[1].lengthscale)
-print("RQ-LS:\n", gp.covar_module.base_kernel.base_kernel.lengthscale.squeeze().tolist())
-# print("RQ-alpha: ", gp.covar_module.base_kernel.base_kernel.kernels[0].alpha.item())
-print("Noise-var:", gp.likelihood.noise.item())
-# torch.save(gp.state_dict(), 'expert_main.pth')
+# print("\nFine Tune kernel parameters:")
+# print("Outputscale:", gp.covar_module.base_kernel.outputscale.item())
+# # print("RBF-LS:\n", gp.covar_module.base_kernel.base_kernel.kernels[1].lengthscale)
+# print("RQ-LS:\n", gp.covar_module.base_kernel.base_kernel.lengthscale.squeeze().tolist())
+# # print("RQ-alpha: ", gp.covar_module.base_kernel.base_kernel.kernels[0].alpha.item())
+# print("Noise-var:", gp.likelihood.noise.item())
+# # torch.save(gp.state_dict(), 'expert_main.pth')
 
-# Make sure the _z (induced inputs) are a subset of the X_train dataset
-_z = gp.covar_module.inducing_points.detach()
+# # Make sure the _z (induced inputs) are a subset of the X_train dataset
+# _z = gp.covar_module.inducing_points.detach()
 
-_z_indices = []
-for z in _z:
-    distances = torch.norm(X_train - z, dim=1)
-    closest_index = torch.argmin(distances).item()
-    _z_indices.append(closest_index)
+# _z_indices = []
+# for z in _z:
+#     distances = torch.norm(X_train - z, dim=1)
+#     closest_index = torch.argmin(distances).item()
+#     _z_indices.append(closest_index)
 
-# Predictions
-gp.eval()
-likelihood.eval()
-with torch.no_grad(), gpytorch.settings.fast_pred_var():
-    observed_pred = likelihood(gp(X_test))
+# # Predictions
+# gp.eval()
+# likelihood.eval()
+# with torch.no_grad(), gpytorch.settings.fast_pred_var():
+#     observed_pred = likelihood(gp(X_test))
 
-# Unormalise predictions
-pred_mean = observed_pred.mean
-mu = scaler.inverse_transform(pred_mean.unsqueeze(1))[:,0]
-stds = scaler.inverse_transform(observed_pred.stddev.unsqueeze(1))[:,0]
-lower_stand, upper_stand = observed_pred.confidence_region()
-lower = scaler.inverse_transform(lower_stand.unsqueeze(1))[:,0]
-upper = scaler.inverse_transform(upper_stand.unsqueeze(1))[:,0]
+# # Unormalise predictions
+# pred_mean = observed_pred.mean
+# mu = scaler.inverse_transform(pred_mean.unsqueeze(1))[:,0]
+# stds = scaler.inverse_transform(observed_pred.stddev.unsqueeze(1))[:,0]
+# lower_stand, upper_stand = observed_pred.confidence_region()
+# lower = scaler.inverse_transform(lower_stand.unsqueeze(1))[:,0]
+# upper = scaler.inverse_transform(upper_stand.unsqueeze(1))[:,0]
 
-print('\nMSE (train-test): ',mean_squared_error(mu, y_nonstand))
-print('MSE (test):       ',mean_squared_error(mu[end_train:-1],
-                                              y_nonstand[end_train:-1]))
+# print('\nMSE (train-test): ',mean_squared_error(mu, y_nonstand))
+# print('MSE (test):       ',mean_squared_error(mu[end_train:-1],
+#                                               y_nonstand[end_train:-1]))
 
-"""--------------------------------------------------------------------------
-PLOT
-"""
-# plt.figure()
-# plt.plot(mse_list)
-# plt.xlabel('iteration')
-# plt.xlabel('MSE')
+# """--------------------------------------------------------------------------
+# PLOT
+# """
+# # plt.figure()
+# # plt.plot(mse_list)
+# # plt.xlabel('iteration')
+# # plt.xlabel('MSE')
 
-fig, ax = plt.subplots()
+# fig, ax = plt.subplots()
 
-# Increase the size of the axis numbers
-plt.rcdefaults()
-plt.rc('xtick', labelsize=14)
-plt.rc('ytick', labelsize=14)
-fig.autofmt_xdate()
+# # Increase the size of the axis numbers
+# plt.rcdefaults()
+# plt.rc('xtick', labelsize=14)
+# plt.rc('ytick', labelsize=14)
+# fig.autofmt_xdate()
 
-plt.fill_between(date_time, lower, upper,
-                alpha=0.5, color='lightcoral',
-                label='2$\\sigma$')
-ax.plot(date_time, y_nonstand, '*', color='green', label='Val')
-ax.plot(date_time, mu, color='red', label='GP')
-plt.axvline(date_time[end_train-1], linestyle='--', linewidth=3,
-        color='black')
-ax.set_xlabel(" Date-time", fontsize=14)
-ax.set_ylabel(" Fault density", fontsize=14)
-plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
+# plt.fill_between(date_time, lower, upper,
+#                 alpha=0.5, color='lightcoral',
+#                 label='2$\\sigma$')
+# ax.plot(date_time, y_nonstand, '*', color='green', label='Val')
+# ax.plot(date_time, mu, color='red', label='GP')
+# plt.axvline(date_time[end_train-1], linestyle='--', linewidth=3,
+#         color='black')
+# ax.set_xlabel(" Date-time", fontsize=14)
+# ax.set_ylabel(" Fault density", fontsize=14)
+# plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
 
-# Induced points
-ax.vlines(
-    x=date_time[_z_indices],
-    ymin=-2*stds.min(),
-    ymax=y_train.max().item(),
-    alpha=0.4,
-    linewidth=1.5,
-    label="z*",
-    color='orange'
-)
-ax.set_xlabel(" Date-time", fontsize=14)
-ax.set_ylabel(" Fault density", fontsize=14)
-plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
-plt.show()
+# # Induced points
+# ax.vlines(
+#     x=date_time[_z_indices],
+#     ymin=-2*stds.min(),
+#     ymax=y_train.max().item(),
+#     alpha=0.4,
+#     linewidth=1.5,
+#     label="z*",
+#     color='orange'
+# )
+# ax.set_xlabel(" Date-time", fontsize=14)
+# ax.set_ylabel(" Fault density", fontsize=14)
+# plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
+# plt.show()

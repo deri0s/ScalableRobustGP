@@ -1,6 +1,7 @@
 import torch
 import copy
 import gpytorch
+import time
 import pandas as pd
 import numpy as np
 from numpy.random import uniform
@@ -590,13 +591,13 @@ class GPTraining():
                 candidate_kernel_structure = ScaleKernel(base_kernel_instance)
                 candidate_kernel_structure.to(self.dtype) # Ensure correct dtype
 
-                # 3. Create a temporary GP model using this kernel structure
-                #    Make a copy of the initial model to inherit variational strategy etc.
+                # 3. Create a temporary GP model to inherit var strategy etc.
                 temp_gp = copy.deepcopy(self.gp0)
                 temp_gp.covar_module = candidate_kernel_structure # Replace kernel
 
                 # 4. Perform grid search (random search) for this kernel structure
                 #    Pass the temporary model as a template to inherit structure/inducing points
+                start_time = time.time()
                 best_state_dict_for_kernel, mse_list = self.grid_search(
                     gp_template=temp_gp,
                     N_sim=self.N_sim, # N_sim set by auto_model_cons/grid_search call
@@ -605,10 +606,11 @@ class GPTraining():
                     batch_size=batch_size
                     # Limits/mse_stop are accessed via self.param_limits / self.mse_stop
                 )
+                end_time = time.time() - start_time
+                print('Comp time InducingPoint: ', end_time)
                 current_error = min(mse_list) if mse_list else float('inf')
 
                 print(f"Structure '{name}': Best Error Found = {current_error:.5f}")
-                # print('Error list: ', mse_list) # Can be very verbose
 
             except Exception as e:
                  print(f"ERROR evaluating kernel structure '{name}': {e}")
@@ -619,12 +621,12 @@ class GPTraining():
 
             # 5. Update overall best for this level if improvement found
             if current_error < best_error:
-                print(f"--- New best structure this level: '{name}' | Error: {current_error:.5f} < {best_error:.5f} ---")
+                print(f"--- New best structure: '{name}' | Error: {current_error:.5f} < Prev error: {best_error:.5f} ---")
                 best_error = current_error
                 best_kernel_state_dict = best_state_dict_for_kernel # Store the state_dict
                 best_kernel_name = name
 
-        print(f"\n--- Best kernel structure in this evaluation group: '{best_kernel_name}' (Error: {best_error:.5f}) ---")
+        print(f"\n--- Best structure in this level: '{best_kernel_name}' (Error: {best_error:.5f}) ---")
         # Return the best state dict found among the evaluated structures and its error
         return best_kernel_state_dict, best_error
 
@@ -691,14 +693,9 @@ class GPTraining():
             # Add the factories evaluated in this level to the master dictionary
             all_evaluated_factories.update(factories_to_evaluate)
 
-            # Update overall best kernel if improvement found
-            print(f'\n--- Level {level+1} Summary ---')
-            print(f'Best Error Found This Level: {error_level:.5f}')
-            print(f'Current Overall Best Error: {final_best_error:.5f}')
-
             if error_level < final_best_error:
                 final_best_error = error_level
-                final_best_state_dict = best_state_dict_level # Store the new best state_dict
+                final_best_state_dict = best_state_dict_level
                 # Find the name associated with this best state dict (requires tracking inside get_best_kernel more closely, or re-eval - simplified here)
                 # For now, we just know *a* kernel at this level was best.
                 # final_best_kernel_name = # Need name from get_best_kernel
@@ -721,19 +718,18 @@ class GPTraining():
         except Exception as e:
              print(f"Error loading final best state_dict: {e}")
              print("Returning the initial model structure instead.")
-             # traceback.print_exc() # DEBUG
-             return copy.deepcopy(self.gp0) # Fallback
+             return copy.deepcopy(self.gp0)
 
         # Print final model parameters (optional)
         # print("\nFinal Best Model Parameters:")
         # for name, param in best_gp.named_parameters():
         #     if param.requires_grad: print(f"{name}: {param.data.numpy()}")
 
-        return best_gp # Return the GP model with the best state loaded
+        return best_gp
 
 
     def grid_search(self, gp_template: ApproximateGP, N_sim,
-                    lr=0.01, training_iterations=100, batch_size=64):
+                    lr=0.01, training_iterations=100, batch_size=256):
         """ Performs random search over hyperparameters defined in self.param_limits. """
 
         # Access limits/stop condition stored in self
@@ -749,16 +745,15 @@ class GPTraining():
 
         print(f"--- Starting Grid Search (N_sim={N_sim}) ---")
         for i in range(N_sim):
-            print(f'Grid Search Simulation {i+1}/{N_sim}')
-            # Work on a fresh copy each time to ensure random init starts clean
+            # Fresh copy each time to ensure random init starts clean
             current_sim_gp = copy.deepcopy(gp)
 
-            # Initialize parameters using uniform sampling based on self.param_limits
+            # Initialise parameters using uniform sampling based on self.param_limits
             try:
                 self.initialise_params(current_sim_gp, 'uniform')
             except Exception as e:
                  print(f"Skipping simulation {i+1} due to parameter initialization error: {e}")
-                 continue # Skip to next simulation
+                 continue
 
             # Train and evaluate the model with current parameters
             try:
@@ -770,11 +765,11 @@ class GPTraining():
                      continue # Skip failed simulation update
 
                 mse_list.append(mse)
-                print(f'Sim {i+1} | Error: {mse:.5f} | Current Best: {best_mse:.5f}')
+                print(f'Sim {i+1}/{N_sim} | Error: {mse:.5f} | Current Best: {best_mse:.5f}')
 
                 # Update best MSE and model state dict
                 if mse < best_mse:
-                    print(f"--- Found better parameters! MSE: {mse:.5f} < {best_mse:.5f} ---")
+                    print(f"\n Found better parameters! MSE: {mse:.5f} < {best_mse:.5f}\n")
                     best_mse = mse
                     best_state_dict = copy.deepcopy(current_sim_gp.state_dict())
 
@@ -798,8 +793,7 @@ class GPTraining():
         """ Fine-tunes a GP by sampling params from Gaussian distribution """
 
         # Access stds/stop condition stored in self
-        # Validation of stds happens during initialize_params
-
+        # Validation of stds happens during initialise_params
         mse_list = []
         best_mse = float('inf')
 
@@ -812,9 +806,9 @@ class GPTraining():
         except Exception as e:
              print(f"Error setting initial centers for tuning: {e}")
              traceback.print_exc()
-             return copy.deepcopy(gp_to_tune) # Return original if centering fails
+             return copy.deepcopy(gp_to_tune) # Original if centering fails
 
-        best_gp = copy.deepcopy(gp_to_tune) # Start with the input model as best
+        best_gp = copy.deepcopy(gp_to_tune) # Start with the input GP as best
 
         # --- Tuning Loop ---
         for i in range(N_sim):
@@ -892,7 +886,6 @@ gp0 = SVGP(inducing_points, D, kernel0)
 gp0.likelihood = likelihood
 
 gp0.likelihood.noise = torch.tensor(0.028, dtype=floating_point)
-print(f"Noise set to {gp0.likelihood.noise.item():.5f} after loading state dict.")
 
 gp0.to(floating_point)
 
@@ -914,13 +907,13 @@ limits = {
 # Run Automatic Model Construction
 # Pass training parameters and parameter limits
 best_gp_auto = auto_trainer.auto_model_cons(
-    levels=1,                  # Number of levels (e.g., 1: RBF, RQ; 2: RBF+RQ, RBF*RBF etc.)
-    N_sim=10,                 # Reduced simulations per structure for speed
+    levels=2,                  # Number of levels (e.g., 1: RBF, RQ; 2: RBF+RQ, RBF*RBF etc.)
+    N_sim=2,                 # Reduced simulations per structure for speed
     param_limits=limits,       # Pass the limits dictionary
     mse_stop=0.005,            # Target MSE for early stopping
-    lr=0.1,                   # Learning rate for training within AMC
+    lr=0.01,                   # Learning rate for training within AMC
     training_iterations=50,    # Training iterations per evaluation
-    batch_size=25             # Batch size for training
+    batch_size=256             # Batch size for training
 )
 
 # --- Evaluate Best Model from AMC ---
@@ -933,9 +926,9 @@ else:
         eval_trainer_auto = GPTraining(copy.deepcopy(best_gp_auto), X_train, y_train, y_test_nonstand)
         final_mse_auto = eval_trainer_auto.train_and_evaluate(
             eval_trainer_auto.gp0,
-            lr=0.005,             # Slightly smaller LR for final evaluation
-            training_iterations=100, # Longer training for final evaluation
-            batch_size=25
+            lr=0.005,
+            training_iterations=100,
+            batch_size=256
         )
         print(f"Final Auto Model Test MSE: {final_mse_auto:.5f}")
         final_model = best_gp_auto # Use this model for potential tuning/plotting
