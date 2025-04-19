@@ -572,7 +572,7 @@ class GPTraining():
         """ Evaluates a set of kernel structures and returns the best state_dict and error. """
         best_kernel_state_dict = None
         best_error = float('inf')
-        best_kernel_name = "None"
+        best_name = "None"
 
         if not kernels_to_evaluate:
              print("Warning: No kernels provided to get_best_kernel.")
@@ -597,7 +597,6 @@ class GPTraining():
 
                 # 4. Perform grid search (random search) for this kernel structure
                 #    Pass the temporary model as a template to inherit structure/inducing points
-                start_time = time.time()
                 best_state_dict_for_kernel, mse_list = self.grid_search(
                     gp_template=temp_gp,
                     N_sim=self.N_sim, # N_sim set by auto_model_cons/grid_search call
@@ -606,29 +605,26 @@ class GPTraining():
                     batch_size=batch_size
                     # Limits/mse_stop are accessed via self.param_limits / self.mse_stop
                 )
-                end_time = time.time() - start_time
-                print('Comp time InducingPoint: ', end_time)
                 current_error = min(mse_list) if mse_list else float('inf')
 
-                print(f"Structure '{name}': Best Error Found = {current_error:.5f}")
+                print(f"Grid search for '{name}' finished: Best Error = {current_error:.5f}")
 
             except Exception as e:
                  print(f"ERROR evaluating kernel structure '{name}': {e}")
                  traceback.print_exc()
-                 current_error = float('inf') # Penalize errors heavily
-                 best_state_dict_for_kernel = None # No valid state dict if error
-
+                 current_error = float('inf')
+                 best_state_dict_for_kernel = None
 
             # 5. Update overall best for this level if improvement found
             if current_error < best_error:
                 print(f"--- New best structure: '{name}' | Error: {current_error:.5f} < Prev error: {best_error:.5f} ---")
                 best_error = current_error
                 best_kernel_state_dict = best_state_dict_for_kernel # Store the state_dict
-                best_kernel_name = name
+                best_name = name
 
-        print(f"\n--- Best structure in this level: '{best_kernel_name}' (Error: {best_error:.5f}) ---")
+        print(f"\n--- Best structure in this level: '{best_name}' (Error: {best_error:.5f}) ---")
         # Return the best state dict found among the evaluated structures and its error
-        return best_kernel_state_dict, best_error
+        return best_kernel_state_dict, best_error, best_name
 
 
     # Modified to accept training params and manage parameter dictionaries
@@ -652,7 +648,7 @@ class GPTraining():
         # --- Initialization ---
         final_best_error = float('inf')
         final_best_state_dict = None # Store the best state dict found
-        final_best_kernel_name = "None"
+        final_best_name = "None"
 
         # Start with base kernels factories
         current_level_factories = self.base_kernels
@@ -683,7 +679,7 @@ class GPTraining():
                 continue
 
             # Get current level's best kernel (returns state_dict, error) by evaluating the new factories
-            best_state_dict_level, error_level = self.get_best_kernel(
+            best_state_dict, error_level, best_name = self.get_best_kernel(
                 factories_to_evaluate,
                 lr=lr,
                 training_iterations=training_iterations,
@@ -695,37 +691,45 @@ class GPTraining():
 
             if error_level < final_best_error:
                 final_best_error = error_level
-                final_best_state_dict = best_state_dict_level
-                # Find the name associated with this best state dict (requires tracking inside get_best_kernel more closely, or re-eval - simplified here)
-                # For now, we just know *a* kernel at this level was best.
-                # final_best_kernel_name = # Need name from get_best_kernel
+                final_best_state_dict = best_state_dict
+                final_best_name = best_name
                 print(f'*** New Overall Best Found! Error: {final_best_error:.5f} ***')
 
         # --- Finish ---
         print(f"\n{'='*15} Auto Model Construction Finished {'='*15}")
-        if final_best_state_dict is None:
-             print("No successful model evaluation completed.")
-             return None # Or raise error
+        if final_best_state_dict is None or final_best_name == "None":
+             print("No successful model evaluation completed or best kernel name not found.")
+             return None
 
+        print(f"Overall Best Kernel: '{final_best_name}'")
         print(f"Overall Best Error Found: {final_best_error:.5f}")
 
-        # Create the final best GP model by loading the state dict
-        best_gp = copy.deepcopy(self.gp0) # Use initial structure as base
+        # --- Reconstruct the winning model structure ---
         try:
-            # Ensure keys match - might need careful handling if kernel structure changed drastically
-            best_gp.load_state_dict(final_best_state_dict)
-            print("Successfully loaded best state_dict into final model.")
+            print(f"Reconstructing final model with kernel: {final_best_name}")
+            # Retrieve the winning factory
+            if final_best_name not in all_evaluated_factories:
+                 raise KeyError(f"Winning kernel name '{final_best_name}' not found in evaluated factories.")
+            winning_factory = all_evaluated_factories[final_best_name]
+
+            # Create the winning kernel structure (assuming ScaleKernel wrap)
+            winning_kernel = ScaleKernel(winning_factory())
+
+            # Create the final model instance by copying gp0 and replacing the kernel
+            final_best_gp = copy.deepcopy(self.gp0)
+            final_best_gp.covar_module = winning_kernel.to(self.dtype)
+            final_best_gp.to(self.dtype) # Ensure the model is correct dtype
+
+            # Load the state dict into the correctly structured model
+            final_best_gp.load_state_dict(final_best_state_dict, strict=True)
+
         except Exception as e:
-             print(f"Error loading final best state_dict: {e}")
+             print(f"Error reconstructing or loading final best model: {e}")
+             traceback.print_exc() # Print detailed traceback for debugging
              print("Returning the initial model structure instead.")
              return copy.deepcopy(self.gp0)
 
-        # Print final model parameters (optional)
-        # print("\nFinal Best Model Parameters:")
-        # for name, param in best_gp.named_parameters():
-        #     if param.requires_grad: print(f"{name}: {param.data.numpy()}")
-
-        return best_gp
+        return final_best_gp
 
 
     def grid_search(self, gp_template: ApproximateGP, N_sim,
@@ -743,7 +747,6 @@ class GPTraining():
         # Make a working copy of the template model for modification
         gp = copy.deepcopy(gp_template)
 
-        print(f"--- Starting Grid Search (N_sim={N_sim}) ---")
         for i in range(N_sim):
             # Fresh copy each time to ensure random init starts clean
             current_sim_gp = copy.deepcopy(gp)
@@ -783,7 +786,6 @@ class GPTraining():
                  traceback.print_exc()
                  mse_list.append(float('inf')) # Record failure
 
-        print(f"--- Grid Search Finished. Best MSE: {best_mse:.5f} ---")
         # Return the best state found and the list of errors
         return best_state_dict, mse_list
 
@@ -904,11 +906,10 @@ limits = {
     'noise_variance': [0.025, 0.028]  # Limits for Likelihood noise
 }
 
-# Run Automatic Model Construction
-# Pass training parameters and parameter limits
-best_gp_auto = auto_trainer.auto_model_cons(
-    levels=2,                  # Number of levels (e.g., 1: RBF, RQ; 2: RBF+RQ, RBF*RBF etc.)
-    N_sim=2,                 # Reduced simulations per structure for speed
+# Automatic Model Construction: Grid search parameters
+gp_gs = auto_trainer.auto_model_cons(
+    levels=1,                  # Number of levels (e.g., 1: RBF, RQ; 2: RBF+RQ, RBF*RBF etc.)
+    N_sim=10,                 # Reduced simulations per structure for speed
     param_limits=limits,       # Pass the limits dictionary
     mse_stop=0.005,            # Target MSE for early stopping
     lr=0.01,                   # Learning rate for training within AMC
@@ -916,25 +917,58 @@ best_gp_auto = auto_trainer.auto_model_cons(
     batch_size=256             # Batch size for training
 )
 
-# --- Evaluate Best Model from AMC ---
-if best_gp_auto is None:
-    print("Automatic Model Construction failed to find a best model.")
-    final_model = gp0 # Fallback to initial model
-else:
-    print('\n--- Evaluating Best Model from Auto Model Construction ---')
-    try:
-        eval_trainer_auto = GPTraining(copy.deepcopy(best_gp_auto), X_train, y_train, y_test_nonstand)
-        final_mse_auto = eval_trainer_auto.train_and_evaluate(
-            eval_trainer_auto.gp0,
-            lr=0.005,
-            training_iterations=100,
-            batch_size=256
-        )
-        print(f"Final Auto Model Test MSE: {final_mse_auto:.5f}")
-        final_model = best_gp_auto # Use this model for potential tuning/plotting
-    except Exception as e:
-        print(f"Error evaluating the best model from AMC: {e}")
-        final_model = gp0 # Fallback
+gp_gs.eval()
+gp_gs.likelihood.eval()
+
+with torch.no_grad(), gpytorch.settings.fast_pred_var():
+    observed_pred = likelihood(gp_gs(X_all))
+
+# Unormalise predictions
+pred_mean = observed_pred.mean
+mu = scaler.inverse_transform(pred_mean.unsqueeze(1))[:,0]
+stds = scaler.inverse_transform(observed_pred.stddev.unsqueeze(1))[:,0]
+lower_stand, upper_stand = observed_pred.confidence_region()
+lower = scaler.inverse_transform(lower_stand.unsqueeze(1))[:,0]
+upper = scaler.inverse_transform(upper_stand.unsqueeze(1))[:,0]
+
+# print('MSE (test):',mean_squared_error(mu, y_test_nonstand))
+
+"""--------------------------------------------------------------------------
+PLOT
+"""
+fig, ax = plt.subplots()
+
+# Increase the size of the axis numbers
+plt.rcdefaults()
+plt.rc('xtick', labelsize=14)
+plt.rc('ytick', labelsize=14)
+fig.autofmt_xdate()
+
+plt.fill_between(date_time, lower, upper,
+                alpha=0.5, color='lightcoral',
+                label='2$\\sigma$')
+ax.plot(date_time, y_all_nonstand, '*', color='green', label='Val')
+ax.plot(date_time, mu, color='red', label='GP')
+plt.axvline(date_time[end_train-1], linestyle='--', linewidth=3,
+        color='black')
+ax.set_xlabel(" Date-time", fontsize=14)
+ax.set_ylabel(" Fault density", fontsize=14)
+plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
+
+# # Induced points
+# ax.vlines(
+#     x=date_time[_z_indices],
+#     ymin=-2*stds.min(),
+#     ymax=y_train.max().item(),
+#     alpha=0.4,
+#     linewidth=1.5,
+#     label="z*",
+#     color='orange'
+# )
+ax.set_xlabel(" Date-time", fontsize=14)
+ax.set_ylabel(" Fault density", fontsize=14)
+plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
+plt.show()
 
 # # --- Optional: Fine Tuning ---
 # if final_model is not gp0: # Only tune if AMC produced a model
