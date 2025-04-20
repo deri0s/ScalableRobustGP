@@ -429,7 +429,7 @@ class GPTraining():
                 # Pass full name prefix for unique parameter identification
                 self._apply_sampling_to_module(module, name, sample_type)
         except Exception as e:
-             print(f"Error during kernel parameter initialization ({sample_type}): {e}")
+             print(f"Error during kernel parameter initialisation ({sample_type}): {e}")
              traceback.print_exc()
              raise # Re-raise error to stop problematic simulation
 
@@ -641,11 +641,11 @@ class GPTraining():
 
         # --- Store parameters for child methods ---
         self.N_sim = N_sim
-        self.param_limits = param_limits # Used by grid_search via initialize_params('uniform')
-        self.param_stds = param_stds     # Used by tune via initialize_params('gaussian')
+        self.param_limits = param_limits # Used by grid_search via initialise_params('uniform')
+        self.param_stds = param_stds     # Used by tune via initialise_params('gaussian')
         self.mse_stop = mse_stop         # Used by grid_search/tune
 
-        # --- Initialization ---
+        # --- Initialisation ---
         final_best_error = float('inf')
         final_best_state_dict = None # Store the best state dict found
         final_best_name = "None"
@@ -737,8 +737,6 @@ class GPTraining():
         """ Performs random search over hyperparameters defined in self.param_limits. """
 
         # Access limits/stop condition stored in self
-        # Validation of limits happens during initialize_params
-
         mse_list = []
         best_mse = float('inf')
         best_state_dict = None
@@ -755,7 +753,7 @@ class GPTraining():
             try:
                 self.initialise_params(current_sim_gp, 'uniform')
             except Exception as e:
-                 print(f"Skipping simulation {i+1} due to parameter initialization error: {e}")
+                 print(f"Skipping simulation {i+1} due to parameter initialisation error: {e}")
                  continue
 
             # Train and evaluate the model with current parameters
@@ -841,7 +839,7 @@ class GPTraining():
                     best_mse = mse
                     best_gp = copy.deepcopy(current_sim_gp) # Keep the whole model
                     # Option: Re-center Gaussian around the new best? (Can sometimes lock in too early)
-                    # self.initialize_params(best_gp, 'center')
+                    # self.initialise_params(best_gp, 'center')
 
                     # Check early stopping
                     if self.mse_stop is not None and mse < self.mse_stop:
@@ -861,16 +859,16 @@ class GPTraining():
 # --- Application Code ---
 # ============================================================================
 
-# --- Load or Initialize Initial Model ---
+# --- Load or Initialise Initial Model ---
 init_state_dict = torch.load('expert_main0.pth', weights_only=False)
 inducing_points = init_state_dict['covar_module.inducing_points']
 init_noise_var = 0.028
 
-# --- Default Initialization if needed ---
+# --- Default Initialisation if needed ---
 if inducing_points is None:
     N_inducing_points = min(50, N_train) # Ensure not more than N_train
     if N_inducing_points <= 0:
-         raise ValueError("Cannot initialize inducing points: N_train is zero.")
+         raise ValueError("Cannot initialise inducing points: N_train is zero.")
     print(f"Initialising {N_inducing_points} inducing points randomly from training data.")
     inducing_points = X_train[np.random.choice(N_train, N_inducing_points, replace=False), :]
 
@@ -909,11 +907,11 @@ limits = {
 # Automatic Model Construction: Grid search parameters
 gp_gs = auto_trainer.auto_model_cons(
     levels=1,                  # Number of levels (e.g., 1: RBF, RQ; 2: RBF+RQ, RBF*RBF etc.)
-    N_sim=10,                 # Reduced simulations per structure for speed
+    N_sim=200,                 # Reduced simulations per structure for speed
     param_limits=limits,       # Pass the limits dictionary
-    mse_stop=0.005,            # Target MSE for early stopping
+    mse_stop=0.002,            # Target MSE for early stopping
     lr=0.01,                   # Learning rate for training within AMC
-    training_iterations=50,    # Training iterations per evaluation
+    training_iterations=25,    # Training iterations per evaluation
     batch_size=256             # Batch size for training
 )
 
@@ -934,68 +932,65 @@ upper = scaler.inverse_transform(upper_stand.unsqueeze(1))[:,0]
 # print('MSE (test):',mean_squared_error(mu, y_test_nonstand))
 
 
-"""------------------------------------------------------------------------
-    Fine Tuning
-"""
-def generate_stds(lengthscales, base_std_dev):
-    """ Penalise lengthscales that are high using a greater std """
+# """------------------------------------------------------------------------
+#     Fine Tuning
+# """
+# def generate_stds(lengthscales, base_std_dev):
+#     """ Penalise lengthscales that are high using a greater std """
 
-    # Ensure lengthscales is a torch tensor
-    if not torch.is_tensor(lengthscales):
-        lengthscales = torch.tensor(lengthscales)
+#     # Ensure lengthscales is a torch tensor
+#     if not torch.is_tensor(lengthscales):
+#         lengthscales = torch.tensor(lengthscales)
     
-    # Find the minimum lengthscale
-    min_lengthscale = torch.min(lengthscales)
+#     # Find the minimum lengthscale
+#     min_lengthscale = torch.min(lengthscales)
     
-    # Calculate the standard deviations for each Gaussian distribution
-    std_devs = base_std_dev * torch.exp((lengthscales - min_lengthscale)/6)
-    std_devs = torch.tensor([300 if std == torch.inf else std for std in std_devs])
+#     # Calculate the standard deviations for each Gaussian distribution
+#     std_devs = base_std_dev * torch.exp((lengthscales - min_lengthscale)/6)
+#     std_devs = torch.tensor([300 if std == torch.inf else std for std in std_devs])
     
-    return std_devs
+#     return std_devs.tolist()
 
-ls_stds = generate_stds(gp_gs.covar_module.base_kernel.lengthscale.squeeze(),
-                        base_std_dev=1e-4)
+# ls_stds = generate_stds(gp_gs.covar_module.base_kernel.lengthscale.squeeze(),
+#                         base_std_dev=1e-4)
 
-if gp_gs is not gp0: # Only tune if AMC produced a model
-    print("\n--- Starting Fine Tuning ---")
+# if gp_gs is not gp0: # Only tune if AMC produced a model
+#     stds = {
+#         'outputscale': 1e-3,
+#         'se_lengthscale': ls_stds,  # Example: List for ARD stds
+#         'rq_lengthscale': ls_stds,
+#         'rq_alpha': 1e-2,
+#         'noise_variance': 1e-4
+#     }
+#     # Update the trainer's stds dictionary
+#     auto_trainer.param_stds = stds
 
-    # Define parameter stds for Gaussian sampling during tuning
-    stds = {
-        'outputscale': 1e-3,
-        'se_lengthscale': ls_stds,  # Example: List for ARD stds
-        'rq_lengthscale': ls_stds,
-        'rq_alpha': 1e-2,
-        'noise_variance': 1e-4
-    }
-    # Update the trainer's stds dictionary
-    auto_trainer.param_stds = stds
+#     try:
+#         tuned_gp = auto_trainer.tune(
+#             gp_to_tune=gp_gs,
+#             N_sim=20,
+#             mse_stop=0.003,
+#             lr=0.005,
+#             training_iterations=80,
+#             batch_size=256
+#         )
+#     except Exception as e:
+#         print(f"Error during tuning: {e}")
+#         traceback.print_exc()
 
-    try:
-        tuned_gp = auto_trainer.tune(
-            gp_to_tune=gp_gs, # Tune the best model found so far
-            N_sim=20,              # Number of tuning simulations
-            mse_stop=0.003,        # Tuning target MSE
-            lr=0.005,              # Tuning learning rate
-            training_iterations=80, # Tuning iterations
-            batch_size=256
-        )
-    except Exception as e:
-        print(f"Error during tuning: {e}")
-        traceback.print_exc()
+# tuned_gp.eval()
+# tuned_gp.likelihood.eval()
 
-tuned_gp.eval()
-tuned_gp.likelihood.eval()
+# with torch.no_grad(), gpytorch.settings.fast_pred_var():
+#     observed_pred = likelihood(tuned_gp(X_all))
 
-with torch.no_grad(), gpytorch.settings.fast_pred_var():
-    observed_pred = likelihood(tuned_gp(X_all))
-
-# Unormalise predictions
-pred_mean = observed_pred.mean
-mu_tuned = scaler.inverse_transform(pred_mean.unsqueeze(1))[:,0]
-stds = scaler.inverse_transform(observed_pred.stddev.unsqueeze(1))[:,0]
-lower_stand, upper_stand = observed_pred.confidence_region()
-lower = scaler.inverse_transform(lower_stand.unsqueeze(1))[:,0]
-upper = scaler.inverse_transform(upper_stand.unsqueeze(1))[:,0]
+# # Unormalise predictions
+# pred_mean = observed_pred.mean
+# mu_tuned = scaler.inverse_transform(pred_mean.unsqueeze(1))[:,0]
+# stds = scaler.inverse_transform(observed_pred.stddev.unsqueeze(1))[:,0]
+# lower_stand, upper_stand = observed_pred.confidence_region()
+# lower = scaler.inverse_transform(lower_stand.unsqueeze(1))[:,0]
+# upper = scaler.inverse_transform(upper_stand.unsqueeze(1))[:,0]
 
 """-------------------------------------------------------------------------
 PLOT
@@ -1013,7 +1008,7 @@ plt.fill_between(date_time, lower, upper,
                 label='2$\\sigma$')
 ax.plot(date_time, y_all_nonstand, '*', color='green', label='Val')
 ax.plot(date_time, mu0, color='black', label='GP(GS)')
-ax.plot(date_time, mu_tuned, color='red', label='GP(tuned)')
+# ax.plot(date_time, mu_tuned, color='red', label='GP(tuned)')
 plt.axvline(date_time[end_train-1], linestyle='--', linewidth=3,
             color='black')
 ax.set_xlabel(" Date-time", fontsize=14)
