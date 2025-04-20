@@ -191,7 +191,7 @@ class GPTraining():
 
         # Covariance functions building blocks
         self.base_kernels = {
-            'RBF': lambda: RBF(ard_num_dims=self.D, dtype=self.dtype),
+            # 'RBF': lambda: RBF(ard_num_dims=self.D, dtype=self.dtype),
             'RQ': lambda: RQ(ard_num_dims=self.D, dtype=self.dtype),
             # 'Lin': lambda: Lin(ard_num_dims=self.D, dtype=self.dtype), # Uncomment if needed
             # 'Per': lambda: Per(ard_num_dims=self.D, dtype=self.dtype), # Uncomment if needed
@@ -790,7 +790,7 @@ class GPTraining():
         return best_state_dict, mse_list
 
 
-    def tune(self, gp_to_tune: ApproximateGP, N_sim,
+    def tune(self, gp_to_tune: ApproximateGP, N_sim, mse_stop=1e-3,
              lr=0.01, training_iterations=100, batch_size=64):
         """ Fine-tunes a GP by sampling params from Gaussian distribution """
 
@@ -925,7 +925,7 @@ with torch.no_grad(), gpytorch.settings.fast_pred_var():
 
 # Unormalise predictions
 pred_mean = observed_pred.mean
-mu = scaler.inverse_transform(pred_mean.unsqueeze(1))[:,0]
+mu0 = scaler.inverse_transform(pred_mean.unsqueeze(1))[:,0]
 stds = scaler.inverse_transform(observed_pred.stddev.unsqueeze(1))[:,0]
 lower_stand, upper_stand = observed_pred.confidence_region()
 lower = scaler.inverse_transform(lower_stand.unsqueeze(1))[:,0]
@@ -933,7 +933,71 @@ upper = scaler.inverse_transform(upper_stand.unsqueeze(1))[:,0]
 
 # print('MSE (test):',mean_squared_error(mu, y_test_nonstand))
 
-"""--------------------------------------------------------------------------
+
+"""------------------------------------------------------------------------
+    Fine Tuning
+"""
+def generate_stds(lengthscales, base_std_dev):
+    """ Penalise lengthscales that are high using a greater std """
+
+    # Ensure lengthscales is a torch tensor
+    if not torch.is_tensor(lengthscales):
+        lengthscales = torch.tensor(lengthscales)
+    
+    # Find the minimum lengthscale
+    min_lengthscale = torch.min(lengthscales)
+    
+    # Calculate the standard deviations for each Gaussian distribution
+    std_devs = base_std_dev * torch.exp((lengthscales - min_lengthscale)/6)
+    std_devs = torch.tensor([300 if std == torch.inf else std for std in std_devs])
+    
+    return std_devs
+
+ls_stds = generate_stds(gp_gs.covar_module.base_kernel.lengthscale.squeeze(),
+                        base_std_dev=1e-4)
+
+if gp_gs is not gp0: # Only tune if AMC produced a model
+    print("\n--- Starting Fine Tuning ---")
+
+    # Define parameter stds for Gaussian sampling during tuning
+    stds = {
+        'outputscale': 1e-3,
+        'se_lengthscale': ls_stds,  # Example: List for ARD stds
+        'rq_lengthscale': ls_stds,
+        'rq_alpha': 1e-2,
+        'noise_variance': 1e-4
+    }
+    # Update the trainer's stds dictionary
+    auto_trainer.param_stds = stds
+
+    try:
+        tuned_gp = auto_trainer.tune(
+            gp_to_tune=gp_gs, # Tune the best model found so far
+            N_sim=20,              # Number of tuning simulations
+            mse_stop=0.003,        # Tuning target MSE
+            lr=0.005,              # Tuning learning rate
+            training_iterations=80, # Tuning iterations
+            batch_size=256
+        )
+    except Exception as e:
+        print(f"Error during tuning: {e}")
+        traceback.print_exc()
+
+tuned_gp.eval()
+tuned_gp.likelihood.eval()
+
+with torch.no_grad(), gpytorch.settings.fast_pred_var():
+    observed_pred = likelihood(tuned_gp(X_all))
+
+# Unormalise predictions
+pred_mean = observed_pred.mean
+mu_tuned = scaler.inverse_transform(pred_mean.unsqueeze(1))[:,0]
+stds = scaler.inverse_transform(observed_pred.stddev.unsqueeze(1))[:,0]
+lower_stand, upper_stand = observed_pred.confidence_region()
+lower = scaler.inverse_transform(lower_stand.unsqueeze(1))[:,0]
+upper = scaler.inverse_transform(upper_stand.unsqueeze(1))[:,0]
+
+"""-------------------------------------------------------------------------
 PLOT
 """
 fig, ax = plt.subplots()
@@ -948,166 +1012,14 @@ plt.fill_between(date_time, lower, upper,
                 alpha=0.5, color='lightcoral',
                 label='2$\\sigma$')
 ax.plot(date_time, y_all_nonstand, '*', color='green', label='Val')
-ax.plot(date_time, mu, color='red', label='GP')
+ax.plot(date_time, mu0, color='black', label='GP(GS)')
+ax.plot(date_time, mu_tuned, color='red', label='GP(tuned)')
 plt.axvline(date_time[end_train-1], linestyle='--', linewidth=3,
-        color='black')
+            color='black')
 ax.set_xlabel(" Date-time", fontsize=14)
 ax.set_ylabel(" Fault density", fontsize=14)
 plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
-
-# # Induced points
-# ax.vlines(
-#     x=date_time[_z_indices],
-#     ymin=-2*stds.min(),
-#     ymax=y_train.max().item(),
-#     alpha=0.4,
-#     linewidth=1.5,
-#     label="z*",
-#     color='orange'
-# )
 ax.set_xlabel(" Date-time", fontsize=14)
 ax.set_ylabel(" Fault density", fontsize=14)
 plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
 plt.show()
-
-# # --- Optional: Fine Tuning ---
-# if final_model is not gp0: # Only tune if AMC produced a model
-#     print("\n--- Starting Fine Tuning ---")
-
-#     # Define parameter standard deviations for Gaussian sampling during tuning
-#     stds = {
-#         'outputscale': 0.1,
-#         'se_lengthscale': [0.2] * D,  # Example: List for ARD stds
-#         'rq_lengthscale': [0.2] * D,
-#         'rq_alpha': 0.1,
-#         'noise_variance': 0.005
-#         # Add stds for other kernel types if needed
-#     }
-#     # Update the trainer's stds dictionary
-#     auto_trainer.param_stds = stds
-
-#     try:
-#         tuned_gp = auto_trainer.tune(
-#             gp_to_tune=final_model, # Tune the best model found so far
-#             N_sim=50,              # Number of tuning simulations
-#             # Std deviations are now taken from auto_trainer.param_stds
-#             mse_stop=0.007,        # Tuning target MSE
-#             lr=0.005,              # Tuning learning rate
-#             training_iterations=80, # Tuning iterations
-#             batch_size=128
-#         )
-
-#         print('\n--- Evaluating Tuned Model ---')
-#         eval_trainer_tuned = GPTraining(copy.deepcopy(tuned_gp), X_train, y_train, y_test_nonstand)
-#         final_mse_tuned = eval_trainer_tuned.train_and_evaluate(
-#             eval_trainer_tuned.gp0,
-#             lr=0.005,
-#             training_iterations=150, # Longest training for final tuned model
-#             batch_size=128
-#         )
-#         print(f"Final Tuned Model Test MSE: {final_mse_tuned:.5f}")
-#         final_model = tuned_gp # Update final model if tuning successful
-
-#     except Exception as e:
-#         print(f"Error during tuning: {e}")
-#         traceback.print_exc()
-#         # Keep the model from AMC if tuning failed
-
-
-# # ============================================================================
-# # --- Final Predictions and Plotting ---
-# # ============================================================================
-# print("\n--- Generating Final Predictions & Plot ---")
-# final_model.eval()
-# final_model.likelihood.eval()
-
-# # Predict on the entire dataset (X_all) for plotting
-# all_dataset = TensorDataset(X_all)
-# # Use a larger batch size for prediction if memory allows
-# pred_batch_size = 256 if N > 0 else 1
-# all_dataloader = DataLoader(all_dataset, batch_size=pred_batch_size, shuffle=False)
-
-# all_pred_means_final = []
-# all_pred_lower_final = []
-# all_pred_upper_final = []
-
-# with torch.no_grad(), gpytorch.settings.fast_pred_var():
-#      for (x_batch,) in all_dataloader:
-#         try:
-#             # Ensure batch is on correct device if using GPU later
-#             # x_batch = x_batch.to(final_model.covar_module.dtype) # Or specific device
-#             preds = final_model(x_batch)
-#             observed_pred = final_model.likelihood(preds)
-#             mean = observed_pred.mean.cpu()
-#             lower, upper = observed_pred.confidence_region() # 95% interval
-#             all_pred_means_final.append(mean)
-#             all_pred_lower_final.append(lower.cpu())
-#             all_pred_upper_final.append(upper.cpu())
-#         except Exception as e:
-#              print(f"Error during final prediction batch: {e}")
-#              # Decide how to handle: stop, skip batch? Stop is safer.
-#              break
-
-# # Check if prediction was successful
-# if not all_pred_means_final:
-#      print("Final prediction failed. Cannot plot.")
-# else:
-#     pred_mean_all_tensor = torch.cat(all_pred_means_final)
-#     pred_lower_all_tensor = torch.cat(all_pred_lower_final)
-#     pred_upper_all_tensor = torch.cat(all_pred_upper_final)
-
-#     # Unnormalize predictions
-#     mu_all = scaler.inverse_transform(pred_mean_all_tensor.unsqueeze(1).numpy())[:, 0]
-#     lower_all = scaler.inverse_transform(pred_lower_all_tensor.unsqueeze(1).numpy())[:, 0]
-#     upper_all = scaler.inverse_transform(pred_upper_all_tensor.unsqueeze(1).numpy())[:, 0]
-
-#     # Calculate final errors on test set portion only
-#     if N > end_train: # Ensure test set exists
-#          mu_test_final = mu_all[end_train:N]
-#          final_test_set_mse = mean_squared_error(mu_test_final, y_all_nonstand[end_train:N])
-#          print(f'\nFinal Model MSE on Test Set only: {final_test_set_mse:.5f}')
-#     else:
-#          print("\nNo test set data to calculate final MSE.")
-
-
-#     # --- Plotting ---
-#     fig, ax = plt.subplots(figsize=(14, 7)) # Wider figure
-
-#     # Increase the size of the axis numbers
-#     plt.rcdefaults()
-#     plt.rc('xtick', labelsize=12)
-#     plt.rc('ytick', labelsize=12)
-
-
-#     # Plot confidence bounds
-#     ax.fill_between(date_time, lower_all, upper_all, alpha=0.2, color='lightcoral', label='95% Confidence Region')
-#     # Plot predictions
-#     ax.plot(date_time, mu_all, color='red', linewidth=1.5, label='GP Prediction')
-#     # Plot actual data (training and test)
-#     ax.plot(date_time[:end_train], y_all_nonstand[:end_train], '.', color='blue', markersize=3, alpha=0.6, label='Training Data')
-#     ax.plot(date_time[end_train:], y_all_nonstand[end_train:], 'x', color='green', markersize=5, label='Test Data')
-
-#     # Vertical line for train/test split
-#     ax.axvline(date_time[end_train-1], linestyle='--', linewidth=1.5, color='black', label='Train/Test Split')
-
-#     # Plot inducing point locations (optional, can be slow)
-#     # try:
-#     #     _z = final_model.variational_strategy.inducing_points.detach().cpu().numpy()
-#     #     # Find nearest X_train indices (simplified: assumes X_train covers the inducing point range)
-#     #     from scipy.spatial.distance import cdist
-#     #     dist_matrix = cdist(_z, X_train_np)
-#     #     _z_indices = np.argmin(dist_matrix, axis=1)
-#     #     ax.vlines(date_time[_z_indices], ymin=min(lower_all), ymax=max(upper_all), alpha=0.15, linewidth=1, label="Inducing Point Locs", color='grey', linestyle=':')
-#     # except Exception as e:
-#     #      print(f"Could not plot inducing points: {e}")
-
-
-#     ax.set_xlabel("Date-time", fontsize=14)
-#     ax.set_ylabel("Fault density", fontsize=14)
-#     ax.tick_params(axis='both', which='major', labelsize=12)
-#     fig.autofmt_xdate() # Improve date formatting
-#     ax.legend(loc='best', prop={"size": 11})
-#     ax.set_title("GP Time Series Forecasting with Auto Model Construction", fontsize=16)
-#     ax.grid(True, linestyle=':', alpha=0.5)
-#     plt.tight_layout() # Adjust layout
-#     plt.show()
