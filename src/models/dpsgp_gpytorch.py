@@ -343,9 +343,7 @@ class DirichletProcessSparseGaussianProcess():
         return indices, X0, Y0, resp[0], pies, stds, K_opt
     
     def predict(self, X_test):
-        """
-        X_test:     Normalised features at test locations
-        """
+        """ X_test:     Normalised features at test locations """
 
         if not torch.is_tensor(X_test):
             X_test = torch.tensor(X_test, dtype=self.floating_point)
