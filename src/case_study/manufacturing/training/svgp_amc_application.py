@@ -16,7 +16,6 @@ import traceback # For detailed error printing
 # Automatic Model Construction
 from models.svgp_auto_model_construction import GPTraining, SVGP
 
-
 """
 NSG data
 """
@@ -129,7 +128,6 @@ X_all = torch.tensor(X, dtype=floating_point) # Full X for final prediction/plot
 # --- Application Code ---
 # ============================================================================
 
-# --- Load or Initialise Initial Model ---
 M = 67 # Number of inducing points
 inducing_points = X_train[np.random.choice(N_train, M, replace=False), :]
 

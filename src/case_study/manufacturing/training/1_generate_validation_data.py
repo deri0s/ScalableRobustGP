@@ -3,6 +3,12 @@ import numpy as np
 import time
 from matplotlib import pyplot as plt
 from pathlib import Path
+# DPSGP
+import torch
+from gpytorch.likelihoods import GaussianLikelihood
+from gpytorch.means import ConstantMean
+from gpytorch.kernels import InducingPointKernel, ScaleKernel, RBFKernel as RBF
+from models.dpsgp_claude import DirichletProcessSparseGaussianProcess as DPSGP
 
 """
 NSG data
@@ -73,12 +79,6 @@ GPytotch is very sensitive to the initial hyperparameters.
 I first used the DPGP sklearn version to estimate the initial
 lengthscales for this script.
 """
-import torch
-from gpytorch.likelihoods import GaussianLikelihood
-from gpytorch.means import ConstantMean
-from gpytorch.kernels import SpectralMixtureKernel as SM
-from gpytorch.kernels import InducingPointKernel, ScaleKernel, RBFKernel as RBF
-from models.dpsgp_gpytorch import DirichletProcessSparseGaussianProcess as DPSGP
 
 # Convert data to torch tensors to input inducing points
 floating_point = torch.float64
@@ -93,7 +93,7 @@ covar_module = InducingPointKernel(se,
                                    inducing_points=inducing_points,
                                    likelihood=likelihood)
 
-lss = [1.83, 0.8, 603, 1.1, 5.87e+04, 3.0, 2.17, 1.2e+03, 4.63, 1, 1.19e+04, 52.2, 663, 17.3]
+lss = [1.83, 0.8, 603, 0.1, 5.87e+04, 3.0, 2.17, 1.2e+03, 4.63, 1, 1.19e+04, 52.2, 663, 17.3]
 start_time = time.time()
 sgp = DPSGP(X_train, y_train, init_K=7,
             gp_model='Sparse',
@@ -109,7 +109,7 @@ sgp.train()
 mu, stds = sgp.predict(X_test)
 comp_time = time.time() - start_time
 
-print(f'DPSGP cleaning time: {comp_time:.2f} seconds')
+print(f'\nDPSGP cleaning time: {comp_time:.2f} seconds')
 
 print('\n Furnace parameters relevance')
 d = {'Features': X_df.columns, 'Importance': sgp.lengthscale[0]}
@@ -133,13 +133,13 @@ X_df = pd.DataFrame(dx)
 y_df = pd.DataFrame(d)
 
 # Define an Excel writer object and the target file
-writer = pd.ExcelWriter("validation_data_main.xlsx")
+# writer = pd.ExcelWriter("validation_data_main.xlsx")
 
-# Save to spreadsheet
-X_df.to_excel(writer, sheet_name='X_stand', index=False)
-y_df.to_excel(writer, sheet_name='y_nonstand', index=False)
-t_df.to_excel(writer, sheet_name='timelags', index=False)
-writer._save()
+# # Save to spreadsheet
+# X_df.to_excel(writer, sheet_name='X_stand', index=False)
+# y_df.to_excel(writer, sheet_name='y_nonstand', index=False)
+# t_df.to_excel(writer, sheet_name='timelags', index=False)
+# writer._save()
 
 #-----------------------------------------------------------------------------
 # REGRESSION PLOT
