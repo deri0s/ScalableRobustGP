@@ -8,7 +8,7 @@ import torch
 from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.means import ConstantMean
 from gpytorch.kernels import InducingPointKernel, ScaleKernel, RBFKernel as RBF
-from models.dpsgp_claude import DirichletProcessSparseGaussianProcess as DPSGP
+from models.dpsgp_torch import DirichletProcessSparseGaussianProcess as DPSGP
 
 """
 NSG data
