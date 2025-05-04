@@ -38,12 +38,12 @@ date_time = y_df['Time stamp'].values
 
 # Get the sampling rate from the first two data points
 step = date_time[1] - date_time[0]
-
+print('\ncaca:\n', step)
 
 """ Noise Burst Detection """
 
-# 1. Choose Window Size
-window_size = 20 # Example: Adjust based on your data and expected burst duration
+# 1. Window Size: Adjust based on your data and expected burst duration
+window_size = 60
 
 # 2. Calculate Moving Standard Deviation
 y_raw_series = pd.Series(y_raw, index=pd.to_datetime(date_time)) # Ensure index is datetime
@@ -60,8 +60,7 @@ if not valid_moving_std.empty:
     if pd.isna(std_moving_std) or std_moving_std == 0:
         std_moving_std = 1e-6 # Assign small value
 
-    # Set threshold (e.g., median + 3 stds of the moving stds)
-    threshold_factor = 2.0
+    threshold_factor = 2.5
     threshold = median_moving_std + threshold_factor * std_moving_std
 else:
     # Handle case where moving_std is all NaN (e.g., window > len(data))
@@ -80,7 +79,7 @@ burst_diff = burst_int.diff() # NaNs will be at the start
 # Find start times: Point where diff changes to 1, or the very first point if it's a burst
 start_mask = (burst_diff == 1)
 if not is_burst.empty and burst_int.iloc[0] == 1:
-    start_mask.iloc[0] = True # Handle burst starting at the very beginning
+    start_mask.iloc[0] = True # Handle burst starting at the beginning
 start_times = is_burst.index[start_mask]
 
 # Find end times for shading: Point where diff changes to -1 (this is the *first* point AFTER the burst)
@@ -100,7 +99,6 @@ if not is_burst.empty and burst_int.iloc[-1] == 1:
     if len(start_times) > len(end_times_for_span):
         end_times_for_span = end_times_for_span.append(pd.DatetimeIndex([last_end_time]))
 
-
 # Ensure equal number of starts and ends for pairing
 min_len = min(len(start_times), len(end_times_for_span))
 if len(start_times) != len(end_times_for_span):
@@ -117,16 +115,9 @@ ax = axes[0]
 ax.plot(y_raw_series.index, y_raw_series.values, label='Raw Data (y_raw)', color='lightblue', zorder=1)
 ax.plot(y_raw_series.index[is_burst], y_raw_series.values[is_burst], '.', color='orangered', label='Points > Threshold', markersize=4, zorder=2) # Keep points for clarity
 
-print(f'Are these indices? {is_burst.index}')
+print(f'Are these indices? {is_burst.values}')
 # bursts as indices
-bursts = [i for i, val in enumerate(is_burst.index) if val]
-
-def fill_missing_values(arr):
-    arr_filled = arr.copy()
-    for i in range(1, len(arr) - 1):
-        if np.isnan(arr[i]) and (arr[i+1] - arr[i-1] < 10):
-            arr_filled[i] = (arr[i-1] + arr[i+1]) / 2
-    return arr_filled
+bursts = [i for i, val in enumerate(is_burst.values) if val]
 
 print(f'Son indices? {bursts}')
 

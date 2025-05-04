@@ -8,8 +8,8 @@ import torch
 from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.means import ConstantMean
 from gpytorch.kernels import InducingPointKernel, ScaleKernel, RBFKernel as RBF
+# from models.dpsgp_torch import DirichletProcessSparseGaussianProcess as DPSGP
 from models.dpsgp_torch import DirichletProcessSparseGaussianProcess as DPSGP
-
 """
 NSG data
 
@@ -44,7 +44,7 @@ date_time = y_df['Time stamp'].values
 # Clean area:
 # Start: '2020-07-25-01', Ends: '2020-09-01-05'
 start_train = y_df[y_df['Time stamp'] == '2020-07-25-01'].index[0]
-end_train = y_df[y_df['Time stamp'] == '2020-09-01-05'].index[0]
+end_train = y_df[y_df['Time stamp'] == '2020-09-01-15'].index[0]
 
 X_train, y_train = X[start_train:end_train], y_raw[start_train:end_train]
 N_train = len(X_train)

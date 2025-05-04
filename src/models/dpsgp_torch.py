@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 from sklearn import mixture as m
 import matplotlib.pyplot as plt
 from scipy.stats import multivariate_normal as mvn
@@ -172,6 +173,11 @@ class DirichletProcessSparseGaussianProcess():
 
         # Initialise the residuals and initial GP hyperparameters
         self.init_errors = mu.detach().numpy().reshape(-1, 1) - self.Y_org
+        # penalise errors at noise burst locations
+        self.init_errors = self.ignore_noise_burts(self.init_errors,
+                                                   y_raw=self.Y_org,
+                                                   window_size=60,
+                                                   threshold_factor=2.5)
         
         # Plot solution
         self.x_axis = np.linspace(0, len(Y), len(Y))
@@ -237,6 +243,67 @@ class DirichletProcessSparseGaussianProcess():
             else:
                 print("Lengthscale:", gp.covar_module.base_kernel.lengthscale.tolist())
         print("Noise:", self.likelihood.noise.item(), '\n')
+
+    def ignore_noise_bursts(self, errors, y_raw, window_size, threshold_factor):
+        """
+        Identify noise bursts using moving standard deviation and
+        penalise residuals at those locations.
+        
+        Parameters:
+        -----------
+        errors : ndarray
+            Residuals from GP prediction
+        y_raw : ndarray
+            Raw measurements/observations
+        window_size : int
+            Size of the moving window for standard deviation calculation
+        threshold_factor : float
+            Multiple of the median moving std dev to use as threshold
+            
+        Returns:
+        --------
+        ndarray
+            Modified errors with penalized values at noise burst locations
+        """
+        # Make a copy to avoid modifying the input
+        penalised_errors = errors.copy()
+        
+        # Create a pandas Series for rolling calculations
+        y_raw_series = pd.Series(y_raw.flatten())
+        
+        # 1. Calculate Moving Standard Deviation
+        moving_std = y_raw_series.rolling(window=window_size, center=True,
+                                          min_periods=1).std()
+
+        # 2. Determine Threshold
+        # Calculate median and std of the non-NaN moving_std values for robustness
+        valid_moving_std = moving_std.dropna()
+        if not valid_moving_std.empty:
+            median_moving_std = valid_moving_std.median()
+            std_moving_std = valid_moving_std.std()
+            # Avoid threshold being NaN if std_moving_std is 0 (flat line)
+            if pd.isna(std_moving_std) or std_moving_std == 0:
+                std_moving_std = 1e-6  # Assign small value
+
+            threshold = median_moving_std + threshold_factor * std_moving_std
+        else:
+            # Handle case where moving_std is all NaN (e.g., window > len(data))
+            threshold = np.inf  # Set a threshold that won't be exceeded
+            print("Warning: Could not calculate a valid threshold from moving_std.")
+
+        # 3. Apply Threshold to identify bursts
+        is_burst = moving_std > threshold
+
+        # Track bursts as indices
+        bursts = [i for i, val in enumerate(is_burst.values) if val]
+
+        # 4. Penalize errors at noise burst locations
+        if bursts:
+            penalised_errors[bursts] = 1e4
+            print(f"Identified {len(bursts)} points as noise bursts")
+
+        return penalised_errors
+
 
     def plot_convergence(self, lnP, title):
         plt.figure()
