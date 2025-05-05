@@ -123,48 +123,89 @@ print('N-train: ', sum)
 print(f'N-Train: {(sum*100)/N:.2f} %')
 
 """ Save data partitions in individual xlsx files """
-for k in range(N_train_regions-1):
-    # Define an Excel writer object and the target file
-    file_path = PROCESSED_PATH / "Training_data_partitions" / f"data{k}.xlsx"
-    file_path.parent.mkdir(parents=True, exist_ok=True)
-    writer = pd.ExcelWriter(file_path)
 
-    # convert to DataFrames
-    X_df = pd.DataFrame(X_struct[k])
-    d = {"date_time": dt_struct[k], "y_raw": y_raw_struct[k],
-         "y_filtered": y0_struct[k]}
-    y_df = pd.DataFrame(d)
+# --- Best Practice: Ensure parent directory exists before the loop ---
+partitions_dir = PROCESSED_PATH / "Training_data_partitions"
+partitions_dir.mkdir(parents=True, exist_ok=True)
+print(f"Ensured directory exists: {partitions_dir}") # Optional: confirmation
 
-    # Save to spreadsheet
-    X_df.to_excel(writer, sheet_name='X_stand', index=False)
-    y_df.to_excel(writer, sheet_name='y_nonstand', index=False)
-    t_df.to_excel(writer, sheet_name='timelags', index=False)
-    writer._save()
+# --- Adjust loop range if you need files 0 through 5 ---
+# If you need data0 to data5, use range(N_train_regions)
+loop_range = range(N_train_regions)
 
-#-----------------------------------------------------------------------------
-# PLOT TRAINING DATA
-#-----------------------------------------------------------------------------
+for k in loop_range:
+    file_path = partitions_dir / f"data{k}.xlsx"
+    print(f"Processing k={k}, file path: {file_path}")
+
+    try:
+        # The 'with' statement creates and manages the writer object
+        with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
+            # --- DO NOT ADD 'writer = pd.ExcelWriter(file_path)' HERE ---
+
+            # Convert data for partition k to DataFrames
+            # Add checks in case list indices are out of bounds, though your setup seems okay for k=0..5
+            if k < len(X_struct) and k < len(dt_struct):
+                 dx = {}
+                 for d, name in enumerate(X_df.columns):
+                    dx[name] = X_struct[k][:, d]
+
+                 X_df = pd.DataFrame(dx)
+
+                 d = {"date_time": dt_struct[k], "y_raw": y_raw_struct[k],
+                      "y_filtered": y0_struct[k]}
+                 y_df = pd.DataFrame(d)
+
+                 # Write DataFrames to the 'writer' managed by the 'with' statement
+                 print(f"  Writing sheets for k={k}...")
+                 X_df.to_excel(writer, sheet_name='X_stand', index=False)
+                 y_df.to_excel(writer, sheet_name='y_nonstand', index=False)
+                 # This saves the globally loaded t_df to every file
+                 t_df.to_excel(writer, sheet_name='timelags', index=False)
+            else:
+                 print(f"  WARNING: k={k} is out of bounds for data structures (len(X_struct)={len(X_struct)}, len(dt_struct)={len(dt_struct)}). Skipping file.")
+                 continue # Skip to the next iteration
+
+        # When the 'with' block exits, the writer is automatically saved and closed.
+        print(f"  Successfully saved file: {file_path}")
+
+    except Exception as e:
+        print(f"  ERROR processing or writing file {file_path}: {e}")
+        # You might want to add more specific error handling here
+
+# --- Remember to adjust the plotting loop range too if you changed the saving loop range ---
+print("\nStarting plotting...")
+plot_loop_range = loop_range # Use the same range for consistency
 
 fig, ax = plt.subplots()
+# ... (rest of your plotting setup) ...
 
-# Increase the size of the axis numbers
-plt.rcdefaults()
-plt.rc('xtick', labelsize=14)
-plt.rc('ytick', labelsize=14)
-fig.autofmt_xdate()
-
-# full raw data
+# Plot full raw data
 ax.plot(date_time, y_raw, color='grey', label='Raw')
 
-c = ['red', 'green', 'coral', 'orange', 'black']
-ax.plot(date_time, y_raw, color='grey', label='Raw')
-for k in range(N_train_regions-1):
-    ax.plot(dt_struct[k], y_raw_struct[k], color=c[k], label='Raw')
+# Define colors for the number of regions you are actually plotting
+# Make sure 'c' has enough colors for your loop_range
+colors = ['red', 'green', 'coral', 'orange', 'black', 'purple', 'brown'] # Add more if needed
+if len(colors) < len(plot_loop_range):
+    print("Warning: Not enough colors defined for all plot regions.")
+
+# Use the same adjusted loop range for plotting
+for k in plot_loop_range:
+     if k < len(dt_struct) and k < len(y_raw_struct): # Check index bounds for plotting data too
+        # Ensure you have enough colors in 'c' for the range
+        plot_color = colors[k % len(colors)] # Cycle through colors if needed
+        ax.plot(dt_struct[k], y_raw_struct[k], color=plot_color, label=f'Region {k}') # Modified label
+     else:
+        print(f"Skipping plot for region k={k}: Index out of bounds.")
+
 
 ax.plot(date_time, y0, color='blue', label='Filtered')
-ax.vlines(date_time[start_indices], max(y_raw), min(y_raw),
-          color='red', label='Jumps')
+# Check if start_indices is not empty before accessing it
+if start_indices:
+    ax.vlines(date_time[start_indices], max(y_raw) if len(y_raw)>0 else 0, min(y_raw) if len(y_raw)>0 else 0,
+              color='red', label='Jumps')
 ax.set_xlabel(" Date-time", fontsize=14)
 ax.set_ylabel(" Fault density", fontsize=14)
-plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
+# Adjust legend size dynamically or ensure it fits
+ax.legend(loc=0, prop={"size":10}, facecolor="white", framealpha=1.0) # Reduced size slightly
+plt.tight_layout() # Helps fit elements like labels
 plt.show()
