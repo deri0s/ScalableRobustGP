@@ -3,6 +3,7 @@ import pandas as pd
 from sklearn import mixture as m
 import matplotlib.pyplot as plt
 from scipy.stats import multivariate_normal as mvn
+from scipy.spatial.distance import cdist
 import torch
 import gpytorch
 from gpytorch.models import ExactGP
@@ -174,23 +175,38 @@ class DirichletProcessSparseGaussianProcess():
         # Initialise the residuals and initial GP hyperparameters
         self.init_errors = mu.detach().numpy().reshape(-1, 1) - self.Y_org
         # penalise errors at noise burst locations
-        self.init_errors = self.ignore_noise_burts(self.init_errors,
-                                                   y_raw=self.Y_org,
-                                                   window_size=60,
-                                                   threshold_factor=2.5)
+        self.init_errors = self.ignore_noise_bursts(self.init_errors,
+                                                    y_raw=self.Y_org,
+                                                    window_size=60,
+                                                    threshold_factor=2.5)
         
         # Plot solution
         self.x_axis = np.linspace(0, len(Y), len(Y))
 
         if self.plot_sol:
+            if np.isscalar(self.X):
+                local_x = self.X
+            else:
+                local_x = [i for i in range(self.N)]
+        
             fig, ax = plt.subplots()
             plt.rcdefaults()
             plt.rc('xtick', labelsize=14)
             plt.rc('ytick', labelsize=14)
             if gp_model == 'Sparse':
                 _z = self.model.covar_module.inducing_points.detach().numpy()
+                _z_indices = self.get_z_indices(self.X, _z)
                 ax.vlines(
-                    x=self.X[::10],
+                    x=_z_indices,
+                    ymin=self.Y.min().item(),
+                    ymax=self.Y.max().item(),
+                    alpha=0.3,
+                    linewidth=1.6,
+                    label="z*",
+                    color='orange'
+                )
+                ax.vlines(
+                    x=range(1,self.N, 10),
                     ymin=self.Y.min().item(),
                     ymax=self.Y.max().item(),
                     alpha=0.3,
@@ -200,16 +216,16 @@ class DirichletProcessSparseGaussianProcess():
                     color='grey'
                 )
                 ax.vlines(
-                    x=_z,
+                    x=self.bursts,
                     ymin=self.Y.min().item(),
                     ymax=self.Y.max().item(),
                     alpha=0.3,
                     linewidth=1.5,
-                    label="z*",
-                    color='orange'
+                    label="outliers",
+                    color='coral'
                 )
-            plt.plot(self.X, self.Y, 'o', color='black')
-            plt.plot(self.X, mu.numpy(), color='lightgreen', linewidth = 2)
+            plt.plot(local_x, self.Y, 'o', color='black')
+            plt.plot(local_x, mu.numpy(), color='lightgreen', linewidth = 2)
             plt.title('First GP approximation')
             ax.set_xlabel(" Date-time", fontsize=14)
             ax.set_ylabel(" Fault density", fontsize=14)
@@ -217,7 +233,7 @@ class DirichletProcessSparseGaussianProcess():
                         framealpha=1.0)
                     
     def update_ls(self, gp):
-        """Update lengthscale parameters from the GP model"""
+        """ Update lengthscale parameters from the GP model """
         if self.gp_model == 'Sparse':
             if np.isscalar(self.lengthscale):
                 self.lengthscale = gp.covar_module.base_kernel.base_kernel.lengthscale.item()
@@ -235,14 +251,15 @@ class DirichletProcessSparseGaussianProcess():
             if np.isscalar(self.lengthscale):
                 print("Lengthscale:", gp.covar_module.base_kernel.base_kernel.lengthscale.item())
             else:
-                print("Lengthscale:", gp.covar_module.base_kernel.base_kernel.lengthscale.tolist())
+                print("Lengthscale:", gp.covar_module.base_kernel.base_kernel.lengthscale.squeeze().tolist())
         else:
             print("Outputscale:", gp.covar_module.outputscale.item())
             if np.isscalar(self.lengthscale):
                 print("Lengthscale:", gp.covar_module.base_kernel.lengthscale.item())
             else:
-                print("Lengthscale:", gp.covar_module.base_kernel.lengthscale.tolist())
+                print("Lengthscale:", gp.covar_module.base_kernel.lengthscale.squeeze().tolist())
         print("Noise:", self.likelihood.noise.item(), '\n')
+
 
     def ignore_noise_bursts(self, errors, y_raw, window_size, threshold_factor):
         """
@@ -263,7 +280,7 @@ class DirichletProcessSparseGaussianProcess():
         Returns:
         --------
         ndarray
-            Modified errors with penalized values at noise burst locations
+            Modified errors with penalised values at noise burst locations
         """
         # Make a copy to avoid modifying the input
         penalised_errors = errors.copy()
@@ -295,19 +312,18 @@ class DirichletProcessSparseGaussianProcess():
         is_burst = moving_std > threshold
 
         # Track bursts as indices
-        bursts = [i for i, val in enumerate(is_burst.values) if val]
+        self.bursts = [i for i, val in enumerate(is_burst.values) if val]
 
-        # 4. Penalize errors at noise burst locations
-        if bursts:
-            penalised_errors[bursts] = 1e4
-            print(f"Identified {len(bursts)} points as noise bursts")
+        # 4. Penalise errors at noise burst locations
+        if self.bursts:
+            penalised_errors[self.bursts] = 1e4
 
         return penalised_errors
 
 
     def plot_convergence(self, lnP, title):
         plt.figure()
-        # Fix the dimension issue - lnP is 1D so we don't need axis parameter
+        # lnP is 1D so we don't need axis parameter
         mask = lnP != 0.0
         ll = lnP[mask]
         plt.plot(ll, color='blue')
@@ -340,24 +356,54 @@ class DirichletProcessSparseGaussianProcess():
         ax.set_ylabel(" Fault density", fontsize=14)
         plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
 
-    def get_z_indices(self, x, inducing_inputs):
-        """Optimized version of the inducing point index finder"""
-        # Use numpy's searchsorted for faster lookup
-        indices = np.zeros(len(inducing_inputs), dtype=int)
-        for i, val in enumerate(inducing_inputs):
-            indices[i] = np.argmin(np.abs(x - val))
+
+    def get_z_indices(self, X_train, inducing_points, metric='euclidean', batch_size=None):
+        """
+        Find indices of nearest training points to inducing points.
         
-        # Get unique indices more efficiently
-        unique_indices = np.unique(indices)
-        return unique_indices
+        Parameters:
+        -----------
+        X_train : torch.Tensor or np.ndarray
+            Training input data
+        inducing_points : torch.Tensor or np.ndarray
+            Inducing points data
+        metric : str, default='euclidean'
+            Distance metric to use
+        batch_size : int, optional
+            Process in batches of this size if provided
+            
+        Returns:
+        --------
+        np.ndarray
+            Indices of nearest training points to each inducing point
+        """
+        M = inducing_points.shape[0]
         
+        if M == 0 or self.N == 0:
+            return np.array([], dtype=int)
+        
+        # For large datasets, compute distances in batches to avoid memory issues
+        if batch_size is not None and M > batch_size:
+            indices = np.zeros(M, dtype=int)
+            for i in range(0, M, batch_size):
+                end_idx = min(i + batch_size, M)
+                batch = inducing_points[i:end_idx]
+                dist_batch = cdist(batch, X_train, metric=metric)
+                indices[i:end_idx] = np.argmin(dist_batch, axis=1)
+            return indices
+        
+        # For smaller datasets, compute all distances at once
+        dist_matrix = cdist(inducing_points, X_train, metric=metric)
+        indices = np.argmin(dist_matrix, axis=1)
+        
+        return indices
+
+
     def gmm_loglikelihood(self, y, f, sigmas, pies, K):
         """
         The log-likelihood of a finite mixture model that is
         evaluated once the f (mus), pies, and sigmas has been estimated.
         This is the function that we evaluate for the model convergence.
-        
-        Improved to handle numerical stability.
         """
         # More numerically stable approach using log probabilities
         log_probs = np.zeros((len(y), K))
@@ -511,7 +557,6 @@ class DirichletProcessSparseGaussianProcess():
             """ CLUSTERING """
             index, X0, Y0, resp0, pies, stds, K = self.DP(self.X_org, self.Y_org,
                                                           errors, K0)
-            
             # In case I want to know the initial mixture parameters
             if i == 1:
                 self.init_sigmas = stds
@@ -532,7 +577,7 @@ class DirichletProcessSparseGaussianProcess():
                                self.likelihood,
                                self.mu0, self.kernel, noise_var)
             
-            # Initialize kernel parameters consistently
+            # Initialise kernel parameters consistently
             if self.gp_model == 'Sparse':
                 self.gp.covar_module.base_kernel.base_kernel.outputscale = 1
                 self.gp.covar_module.base_kernel.base_kernel.lengthscale = self.lengthscale
@@ -630,7 +675,7 @@ class DirichletProcessSparseGaussianProcess():
         # get estimated hyperparameters
         if self.gp_model == 'Sparse':
             self._z_normalised = self.gp.covar_module.inducing_points.detach().numpy()
-            self._z_indices = self.get_z_indices(X0[:, 0], self._z_normalised[:, 0])
+            self._z_indices = self.get_z_indices(X0, self._z_normalised)
 
         # Return the unornalised values
         if self.normalise_y is True:

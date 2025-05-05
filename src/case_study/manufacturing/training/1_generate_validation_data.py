@@ -8,8 +8,8 @@ import torch
 from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.means import ConstantMean
 from gpytorch.kernels import InducingPointKernel, ScaleKernel, RBFKernel as RBF
-# from models.dpsgp_torch import DirichletProcessSparseGaussianProcess as DPSGP
 from models.dpsgp_torch import DirichletProcessSparseGaussianProcess as DPSGP
+# from models.svgp_auto_model_construction import GPTraining
 """
 NSG data
 
@@ -44,7 +44,7 @@ date_time = y_df['Time stamp'].values
 # Clean area:
 # Start: '2020-07-25-01', Ends: '2020-09-01-05'
 start_train = y_df[y_df['Time stamp'] == '2020-07-25-01'].index[0]
-end_train = y_df[y_df['Time stamp'] == '2020-09-01-15'].index[0]
+end_train = y_df[y_df['Time stamp'] == '2020-09-01-20'].index[0]
 
 X_train, y_train = X[start_train:end_train], y_raw[start_train:end_train]
 N_train = len(X_train)
@@ -93,18 +93,18 @@ covar_module = InducingPointKernel(se,
                                    inducing_points=inducing_points,
                                    likelihood=likelihood)
 
-lss = [1.83, 0.8, 603, 0.1, 5.87e+04, 3.0, 2.17, 1.2e+03, 4.63, 1, 1.19e+04, 52.2, 663, 17.3]
+lss = [1.83, 0.8, 603, 0.2, 5.87e+04, 3.0, 2.17, 1.2e+03, 4.63, 1, 1.19e+04, 52.2, 663, 17.3]
 start_time = time.time()
 sgp = DPSGP(X_train, y_train, init_K=7,
             gp_model='Sparse',
             prior_mean=ConstantMean(), kernel=covar_module,
-            lengthscale=lss, #0.05*np.ones(X.shape[-1]),
+            lengthscale=lss,
             N_iter=15,
             noise_var = 0.06,
             floating_point=floating_point,
             normalise_y=True,
             DP_max_iter=390,
-            print_conv=True, plot_conv=True, plot_sol=True)
+            print_conv=False, plot_conv=False, plot_sol=True)
 sgp.train()
 mu, stds = sgp.predict(X_test)
 comp_time = time.time() - start_time
