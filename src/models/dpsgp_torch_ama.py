@@ -186,7 +186,6 @@ class DirichletProcessSparseGaussianProcess():
         # penalise errors at noise burst locations
         self.init_errors = self.ignore_noise_bursts(self.init_errors,
                                                     y_raw=self.Y_org,
-                                                    window_size=self.window_size,
                                                     threshold_factor=self.threshold_factor)
         
         # Plot solution
@@ -270,9 +269,9 @@ class DirichletProcessSparseGaussianProcess():
         print("Noise:", self.likelihood.noise.item(), '\n')
 
 
-    def ignore_noise_bursts(self, errors, y_raw, window_size, threshold_factor):
+    def ignore_noise_bursts(self, errors, y_raw, threshold_factor=3):
         """
-        Identify noise bursts using moving standard deviation and
+        Identify noise bursts using an Adaptive Moving Average approach and
         penalise residuals at those locations.
         
         Parameters:
@@ -281,11 +280,11 @@ class DirichletProcessSparseGaussianProcess():
             Residuals from GP prediction
         y_raw : ndarray
             Raw measurements/observations
-        window_size : int
-            Size of the moving window for standard deviation calculation
+        window_size : int, optional
+            No longer used - kept for backward compatibility
         threshold_factor : float
-            Multiple of the median moving std dev to use as threshold
-            
+            Multiple of the robust standard deviation to use as threshold
+                
         Returns:
         --------
         ndarray
@@ -294,39 +293,110 @@ class DirichletProcessSparseGaussianProcess():
         # Make a copy to avoid modifying the input
         penalised_errors = errors.copy()
         
-        # Create a pandas Series for rolling calculations
-        y_raw_series = pd.Series(y_raw.flatten())
+        # Flatten the arrays if they're not already
+        y_raw_flat = y_raw.flatten()
         
-        # 1. Calculate Moving Standard Deviation
-        moving_std = y_raw_series.rolling(window=window_size, center=True,
-                                          min_periods=1).std()
-
-        # 2. Determine Threshold
-        # Calculate median and std of the non-NaN moving_std values for robustness
-        valid_moving_std = moving_std.dropna()
-        if not valid_moving_std.empty:
-            median_moving_std = valid_moving_std.median()
-            std_moving_std = valid_moving_std.std()
-            # Avoid threshold being NaN if std_moving_std is 0 (flat line)
-            if pd.isna(std_moving_std) or std_moving_std == 0:
-                std_moving_std = 1e-6  # Assign small value
-
-            threshold = median_moving_std + threshold_factor * std_moving_std
+        # 1. Use robust statistics to identify the baseline variation
+        from scipy import stats
+        import numpy as np
+        
+        # Use median absolute deviation as a robust measure of variability
+        median_y = np.median(y_raw_flat)
+        mad = stats.median_abs_deviation(y_raw_flat, scale=1.4826)  # Scale factor for normal distribution
+        
+        # 2. Compute adaptive window sizes based on data characteristics
+        n = len(y_raw_flat)
+        
+        # Use data length to determine appropriate base window size
+        if n < 50:
+            base_window = max(3, n // 10)  # Minimum window of 3 points
+        elif n < 200:
+            base_window = n // 20
+        elif n < 1000:
+            base_window = n // 40
         else:
-            # Handle case where moving_std is all NaN (e.g., window > len(data))
-            threshold = np.inf  # Set a threshold that won't be exceeded
-            print("Warning: Could not calculate a valid threshold from moving_std.")
-
-        # 3. Apply Threshold to identify bursts
-        is_burst = moving_std > threshold
-
-        # Track bursts as indices
-        self.bursts = [i for i, val in enumerate(is_burst.values) if val]
-
-        # 4. Penalise errors at noise burst locations
-        if self.bursts:
+            base_window = n // 100
+            
+        # 3. Identify potential change points in the time series
+        import pandas as pd
+        
+        # Create a pandas Series for calculations
+        y_series = pd.Series(y_raw_flat)
+        
+        # Calculate rolling statistics with multiple window sizes
+        small_window = max(3, base_window // 2)
+        medium_window = base_window
+        large_window = base_window * 2
+        
+        # Compute differences between short and long-term averages
+        short_ma = y_series.rolling(window=small_window, center=True, min_periods=1).mean()
+        medium_ma = y_series.rolling(window=medium_window, center=True, min_periods=1).mean()
+        long_ma = y_series.rolling(window=large_window, center=True, min_periods=1).mean()
+        
+        # Calculate volatility using adaptive windows
+        volatility_short = y_series.rolling(window=small_window, center=True, min_periods=1).std()
+        volatility_medium = y_series.rolling(window=medium_window, center=True, min_periods=1).std()
+        
+        # Calculate rate of change (derivative)
+        roc = y_series.diff().abs().rolling(window=small_window, center=True, min_periods=1).mean()
+        
+        # 4. Use multiple indicators to identify noise bursts
+        # 4.1 Difference between short and long-term averages
+        ma_diff = (short_ma - long_ma).abs()
+        
+        # 4.2 Local volatility relative to overall volatility
+        rel_volatility = volatility_short / (volatility_medium.mean() + 1e-10)
+        
+        # 4.3 Points that are far from the median
+        distance_from_median = np.abs(y_raw_flat - median_y)
+        
+        # 5. Combine indicators to identify bursts
+        # Define thresholds for each indicator using robust statistics
+        ma_diff_threshold = ma_diff.median() + threshold_factor * ma_diff.std()
+        vol_threshold = rel_volatility.median() + threshold_factor * rel_volatility.std()
+        distance_threshold = threshold_factor * mad
+        roc_threshold = roc.median() + threshold_factor * roc.std()
+        
+        # Combine multiple conditions to identify bursts
+        # A point must satisfy at least two conditions to be considered a burst
+        condition1 = ma_diff > ma_diff_threshold
+        condition2 = rel_volatility > vol_threshold
+        condition3 = distance_from_median > distance_threshold
+        condition4 = roc > roc_threshold
+        
+        # Count how many conditions each point satisfies
+        condition_sum = (condition1.astype(int) + 
+                         condition2.astype(int) + 
+                         condition3.astype(int) +
+                         condition4.astype(int))
+        
+        # Points that satisfy at least 2 conditions are considered bursts
+        is_burst = condition_sum >= 2
+        
+        # Convert to numpy array and handle any NaN values
+        is_burst = is_burst.fillna(False).values
+        
+        # 6. Expand burst regions slightly to catch transitions
+        # This helps to ensure we don't miss the beginning or end of a burst
+        from scipy import ndimage
+        
+        # Apply a small dilation to the burst mask to include transition regions
+        structure = np.ones(min(5, base_window // 2))
+        is_burst_expanded = ndimage.binary_dilation(is_burst, structure=structure)
+        
+        # 7. Track bursts as indices
+        self.bursts = np.where(is_burst_expanded)[0]
+        
+        # 8. Penalise errors at noise burst locations
+        if len(self.bursts) > 0:
             penalised_errors[self.bursts] = 1e4
-
+        
+        # 9. Report statistics if needed
+        if hasattr(self, 'print_conv') and self.print_conv:
+            burst_percentage = len(self.bursts) / len(y_raw_flat) * 100
+            print(f"Identified {len(self.bursts)} noise burst points ({burst_percentage:.2f}% of data)")
+            print(f"Adaptive window sizes: small={small_window}, medium={medium_window}, large={large_window}")
+    
         return penalised_errors
 
 

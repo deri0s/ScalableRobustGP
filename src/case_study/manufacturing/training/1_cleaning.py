@@ -8,7 +8,7 @@ import torch
 from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.means import ConstantMean
 from gpytorch.kernels import InducingPointKernel, ScaleKernel, RBFKernel as RBF
-from models.dpsgp_torch import DirichletProcessSparseGaussianProcess as DPSGP
+from models.dpsgp_torch_ama import DirichletProcessSparseGaussianProcess as DPSGP
 
 """
 NSG data
@@ -19,7 +19,7 @@ Do not adjust data for timelags.
 # NSG post processes data location
 ROOT_PATH = Path(__file__).resolve().parent.parent
 PROCESSED_PATH = ROOT_PATH / "data" / "processed" / "Training_data_partitions"
-file = PROCESSED_PATH / 'data3.xlsx'
+file = PROCESSED_PATH / 'data1.xlsx'
 
 # Training df
 X_df = pd.read_excel(file, sheet_name='X_stand')
@@ -70,7 +70,7 @@ lengthscales for this script.
 # Convert data to torch tensors to input inducing points
 floating_point = torch.float64
 X_tensor = torch.tensor(X_train, dtype=floating_point)
-inducing_points = X_tensor[::10, :]
+inducing_points = X_tensor[::8, :]
 
 likelihood = GaussianLikelihood()
 
@@ -80,7 +80,7 @@ covar_module = InducingPointKernel(se,
                                    inducing_points=inducing_points,
                                    likelihood=likelihood)
 
-lss = [1.83, 0.8, 603, 0.2, 5.87e+04, 3.0, 2.17, 1.2e+03, 4.63, 1, 1.19e+04, 52.2, 663, 17.3]
+lss = [1.83, 0.8, 603, 0.3, 5.87e+04, 3.0, 2.17, 1.2e+03, 4.63, 1, 1.19e+04, 52.2, 663, 17.3]
 start_time = time.time()
 sgp = DPSGP(X_train, y_train, init_K=7,
             gp_model='Sparse',
@@ -91,6 +91,8 @@ sgp = DPSGP(X_train, y_train, init_K=7,
             floating_point=floating_point,
             normalise_y=True,
             DP_max_iter=390,
+            # window_size=150,
+            threshold_factor=1.5,
             print_conv=True, plot_conv=True, plot_sol=True)
 sgp.train()
 mu, stds = sgp.predict(X_train)
@@ -107,13 +109,20 @@ print(fidf.head(14))
 # get inducing points indices
 _z_indices = sgp._z_indices
 
+print('N-train: \t', N_train)
 print('N-induced: ', len(_z_indices))
 
 # save predictions to use it in another scipt as the `true` fault_density
+cleaned_indices = sgp.indices[0]
+
+print('N-clean: ', len(cleaned_indices))
+
 dx = {}
 for d, name in enumerate(X_df.columns):
     dx[name] = X_train[:, d]
 
+d_clean = {"date_time": date_time[cleaned_indices],
+           "y_raw": y_train[sgp.indices[0]]}
 d = {"date_time": date_time, "gp_pred": mu}
 
 X_df = pd.DataFrame(dx)
@@ -157,8 +166,6 @@ ax.vlines(
     label="z0",
     color='grey'
 )
-dt0 = date_time[sgp.indices[0]]
-print('N-clean: ', len(dt0))
 
 ax.vlines(
     # Sparse clean data
