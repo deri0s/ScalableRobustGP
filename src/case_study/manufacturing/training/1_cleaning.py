@@ -8,7 +8,7 @@ import torch
 from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.means import ConstantMean
 from gpytorch.kernels import InducingPointKernel, ScaleKernel, RBFKernel as RBF
-from models.dpsgp_torch_ama import DirichletProcessSparseGaussianProcess as DPSGP
+from models.dpsgp_torch import DirichletProcessSparseGaussianProcess as DPSGP
 
 """
 NSG data
@@ -18,8 +18,8 @@ Do not adjust data for timelags.
 
 # NSG post processes data location
 ROOT_PATH = Path(__file__).resolve().parent.parent
-PROCESSED_PATH = ROOT_PATH / "data" / "processed" / "Training_data_partitions"
-file = PROCESSED_PATH / 'data1.xlsx'
+PROCESSED_PATH = ROOT_PATH / "data" / "processed" / "Raw_data_partitions"
+file = PROCESSED_PATH / 'data4.xlsx'
 
 # Training df
 X_df = pd.read_excel(file, sheet_name='X_stand')
@@ -91,9 +91,8 @@ sgp = DPSGP(X_train, y_train, init_K=7,
             floating_point=floating_point,
             normalise_y=True,
             DP_max_iter=390,
-            # window_size=150,
-            threshold_factor=1.5,
-            print_conv=True, plot_conv=True, plot_sol=True)
+            threshold_factor=2.5,
+            print_conv=False, plot_conv=False, plot_sol=False)
 sgp.train()
 mu, stds = sgp.predict(X_train)
 comp_time = time.time() - start_time
@@ -109,32 +108,46 @@ print(fidf.head(14))
 # get inducing points indices
 _z_indices = sgp._z_indices
 
-print('N-train: \t', N_train)
+print('N-train:   ', N_train)
 print('N-induced: ', len(_z_indices))
 
 # save predictions to use it in another scipt as the `true` fault_density
 cleaned_indices = sgp.indices[0]
-
-print('N-clean: ', len(cleaned_indices))
+cleaned_indices = np.sort(np.append(cleaned_indices, sgp.indices[1]))
+dt_cleaned = date_time[cleaned_indices]
+y_cleaned = y_train[cleaned_indices]
+print('N-clean:   ', len(cleaned_indices))
 
 dx = {}
 for d, name in enumerate(X_df.columns):
     dx[name] = X_train[:, d]
 
-d_clean = {"date_time": date_time[cleaned_indices],
-           "y_raw": y_train[sgp.indices[0]]}
-d = {"date_time": date_time, "gp_pred": mu}
+d = {"date_time": date_time, "y_raw": y_train, "gp_pred": mu, "y_filtered": y_filtered}
 
+# Raw data
 X_df = pd.DataFrame(dx)
 y_df = pd.DataFrame(d)
+
+# Cleaned data
+dx_clean = X_train[cleaned_indices]
+dy_clean = {"Indices": cleaned_indices, "date_time": dt_cleaned,
+           "y_raw": y_cleaned}
+X_df_clean = pd.DataFrame(dx_clean)
+y_df_clean = pd.DataFrame(dy_clean)
 
 # Define an Excel writer object and the target file
 # writer = pd.ExcelWriter("validation_data_main.xlsx")
 
 # # Save to spreadsheet
 # X_df.to_excel(writer, sheet_name='X_stand', index=False)
+# pd.read_excel(file, sheet_name='X_stand').to_excel(writer,
+#                                                    sheet_name="X_norm",
+#                                                    index=False)
 # y_df.to_excel(writer, sheet_name='y_nonstand', index=False)
 # t_df.to_excel(writer, sheet_name='timelags', index=False)
+# # Clean
+# X_df_clean.to_excel(writer, sheet_name="X_stand_clean", index=False)
+# y_df_clean.to_excel(writer, sheet_name='y_nonstand_clean', index=False)
 # writer._save()
 
 #-----------------------------------------------------------------------------
@@ -169,7 +182,7 @@ ax.vlines(
 
 ax.vlines(
     # Sparse clean data
-    x=dt0[_z_indices],
+    x=dt_cleaned[_z_indices],
     ymin=-0.5,
     ymax=y_train.max().item(),
     alpha=0.3,
@@ -180,4 +193,35 @@ ax.vlines(
 ax.set_xlabel(" Date-time", fontsize=14)
 ax.set_ylabel(" Fault density", fontsize=14)
 plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
+
+#-----------------------------------------------------------------------------
+# CLUSTERING PLOT
+#-----------------------------------------------------------------------------
+
+# processes colors
+color_iter = ['lightgreen', 'orange','red', 'brown', 'blue', 'black']
+
+# DP-GP
+enumerate_K = [i for i in range(sgp.K_opt)]
+
+fig, ax = plt.subplots()
+# Increase the size of the axis numbers
+plt.rcdefaults()
+plt.rc('xtick', labelsize=14)
+plt.rc('ytick', labelsize=14)
+
+fig.autofmt_xdate()
+ax.set_title(" Clustering performance", fontsize=18)
+if sgp.K_opt != 1:
+    for i, (k, c) in enumerate(zip(enumerate_K, color_iter)):
+        ax.plot(date_time[sgp.indices[k]], y_train[sgp.indices[k]],
+                'x', color=c, markersize = 8, label='Noise level '+str(k))
+ax.plot(dt_cleaned, y_train[cleaned_indices], 'o', color="lightgreen",
+        linewidth = 2, label="Furnace")        
+ax.plot(date_time, y_filtered, color="blue", linewidth = 2, label="y-filtered")
+ax.plot(date_time, mu, color="green", linewidth = 2, label="DPSGP")
+ax.set_xlabel(" Date-time", fontsize=14)
+ax.set_ylabel(" Fault density", fontsize=14)
+plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
+
 plt.show()

@@ -133,44 +133,44 @@ print(f"Ensured directory exists: {partitions_dir}") # Optional: confirmation
 # If you need data0 to data5, use range(N_train_regions)
 loop_range = range(N_train_regions)
 
-for k in loop_range:
-    file_path = partitions_dir / f"data{k}.xlsx"
-    print(f"Processing k={k}, file path: {file_path}")
+# for k in loop_range:
+#     file_path = partitions_dir / f"data{k}.xlsx"
+#     print(f"Processing k={k}, file path: {file_path}")
 
-    try:
-        # The 'with' statement creates and manages the writer object
-        with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
-            # --- DO NOT ADD 'writer = pd.ExcelWriter(file_path)' HERE ---
+#     try:
+#         # The 'with' statement creates and manages the writer object
+#         with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
+#             # --- DO NOT ADD 'writer = pd.ExcelWriter(file_path)' HERE ---
 
-            # Convert data for partition k to DataFrames
-            # Add checks in case list indices are out of bounds, though your setup seems okay for k=0..5
-            if k < len(X_struct) and k < len(dt_struct):
-                 dx = {}
-                 for d, name in enumerate(X_df.columns):
-                    dx[name] = X_struct[k][:, d]
+#             # Convert data for partition k to DataFrames
+#             # Add checks in case list indices are out of bounds, though your setup seems okay for k=0..5
+#             if k < len(X_struct) and k < len(dt_struct):
+#                  dx = {}
+#                  for d, name in enumerate(X_df.columns):
+#                     dx[name] = X_struct[k][:, d]
 
-                 X_df = pd.DataFrame(dx)
+#                  X_df = pd.DataFrame(dx)
 
-                 d = {"date_time": dt_struct[k], "y_raw": y_raw_struct[k],
-                      "y_filtered": y0_struct[k]}
-                 y_df = pd.DataFrame(d)
+#                  d = {"date_time": dt_struct[k], "y_raw": y_raw_struct[k],
+#                       "y_filtered": y0_struct[k]}
+#                  y_df = pd.DataFrame(d)
 
-                 # Write DataFrames to the 'writer' managed by the 'with' statement
-                 print(f"  Writing sheets for k={k}...")
-                 X_df.to_excel(writer, sheet_name='X_stand', index=False)
-                 y_df.to_excel(writer, sheet_name='y_nonstand', index=False)
-                 # This saves the globally loaded t_df to every file
-                 t_df.to_excel(writer, sheet_name='timelags', index=False)
-            else:
-                 print(f"  WARNING: k={k} is out of bounds for data structures (len(X_struct)={len(X_struct)}, len(dt_struct)={len(dt_struct)}). Skipping file.")
-                 continue # Skip to the next iteration
+#                  # Write DataFrames to the 'writer' managed by the 'with' statement
+#                  print(f"  Writing sheets for k={k}...")
+#                  X_df.to_excel(writer, sheet_name='X_stand', index=False)
+#                  y_df.to_excel(writer, sheet_name='y_nonstand', index=False)
+#                  # This saves the globally loaded t_df to every file
+#                  t_df.to_excel(writer, sheet_name='timelags', index=False)
+#             else:
+#                  print(f"  WARNING: k={k} is out of bounds for data structures (len(X_struct)={len(X_struct)}, len(dt_struct)={len(dt_struct)}). Skipping file.")
+#                  continue # Skip to the next iteration
 
-        # When the 'with' block exits, the writer is automatically saved and closed.
-        print(f"  Successfully saved file: {file_path}")
+#         # When the 'with' block exits, the writer is automatically saved and closed.
+#         print(f"  Successfully saved file: {file_path}")
 
-    except Exception as e:
-        print(f"  ERROR processing or writing file {file_path}: {e}")
-        # You might want to add more specific error handling here
+#     except Exception as e:
+#         print(f"  ERROR processing or writing file {file_path}: {e}")
+#         # You might want to add more specific error handling here
 
 # --- Remember to adjust the plotting loop range too if you changed the saving loop range ---
 print("\nStarting plotting...")
