@@ -3,6 +3,7 @@ import gpytorch
 import time
 import pandas as pd
 import numpy as np
+from pathlib import Path
 from sklearn.preprocessing import StandardScaler as ss
 from sklearn.metrics import mean_squared_error
 from matplotlib import pyplot as plt
@@ -20,7 +21,11 @@ from models.svgp_auto_model_construction import GPTraining, SVGP
 NSG data
 """
 
-file = 'validation_data_main.xlsx'
+# NSG post processes data location
+ROOT_PATH = Path(__file__).resolve().parent.parent
+PROCESSED_PATH = ROOT_PATH / "data" / "processed" / "Training_data_partitions"
+file = PROCESSED_PATH / 'clean4.xlsx'
+# file = 'validation_data_main.xlsx'
 
 # Training df
 X_df = pd.read_excel(file, sheet_name='X_stand')
@@ -86,7 +91,7 @@ X = X_df.values
 y_all_nonstand, date_time = y_df.gp_pred.values, y_df.date_time.values
 
 N, D = np.shape(X)
-test_perc = 0.12
+test_perc = 0.2
 end_train = N - int(N*test_perc)
 
 X_train_np = X[0:end_train]
@@ -128,7 +133,7 @@ X_all = torch.tensor(X, dtype=floating_point) # Full X for final prediction/plot
 # --- Application Code ---
 # ============================================================================
 
-M = 67 # Number of inducing points
+M = 120 # Number of inducing points
 inducing_points = X_train[np.random.choice(N_train, M, replace=False), :]
 
 # --- Create Initial ApproximateGP Model ---
@@ -161,7 +166,7 @@ limits = {
 # Automatic Model Construction: Grid search parameters
 gp_gs = auto_trainer.auto_model_cons(
     levels=1,                  # Number of levels (e.g., 1: RBF, RQ; 2: RBF+RQ, RBF*RBF etc.)
-    N_sim=1000,                 # Reduced simulations per structure for speed
+    N_sim=20,                 # Reduced simulations per structure for speed
     param_limits=limits,       # Pass the limits dictionary
     mse_stop=0.055,            # Target MSE for early stopping
     lr=0.01,                   # Learning rate for training within AMC
@@ -248,7 +253,7 @@ if gp_gs is not gp0: # Only tune if AMC produced a model
     try:
         tuned_gp = auto_trainer.tune(
             gp_to_tune=gp_gs,
-            N_sim=100,
+            N_sim=10,
             mse_stop=0.003,
             lr=0.005,
             training_iterations=80,
