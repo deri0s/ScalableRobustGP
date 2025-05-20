@@ -24,8 +24,7 @@ NSG data
 # NSG post processes data location
 ROOT_PATH = Path(__file__).resolve().parent.parent
 PROCESSED_PATH = ROOT_PATH / "data" / "processed" / "Training_data_partitions"
-file = PROCESSED_PATH / 'clean4.xlsx'
-# file = 'validation_data_main.xlsx'
+file = PROCESSED_PATH / 'clean0.xlsx'
 
 # Training df
 X_df = pd.read_excel(file, sheet_name='X_stand')

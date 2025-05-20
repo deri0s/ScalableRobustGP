@@ -733,7 +733,7 @@ class DirichletProcessSparseGaussianProcess():
                 
             i += 1
             
-            if i == max_iter:
+            if i == max_iter-1:
                 print('\n The model did not converge after ', max_iter,
                       ' iterations')
                         
