@@ -25,7 +25,7 @@ SAVE_PATH = ROOT_PATH / "data" / "processed" / "Training_data_partitions"
 tf_list = [1.5, 1.5, 2, 2, 2.5]
 
 for i in range(5):
-    file = PROCESSED_PATH / f'data{i}.xlsx'
+    file = PROCESSED_PATH / f'raw{i}.xlsx'
 
     # Training df
     X_df = pd.read_excel(file, sheet_name='X_stand')
@@ -131,49 +131,49 @@ for i in range(5):
     y_df_clean.to_excel(writer, sheet_name='y_nonstand_clean', index=False)
     writer._save()
 
-#-----------------------------------------------------------------------------
-# REGRESSION PLOT
-#-----------------------------------------------------------------------------
-fig, ax = plt.subplots()
+    #-----------------------------------------------------------------------------
+    # REGRESSION PLOT
+    #-----------------------------------------------------------------------------
+    fig, ax = plt.subplots()
+    plt.title(f"Partition: {i}")
+    # Increase the size of the axis numbers
+    plt.rcdefaults()
+    plt.rc('xtick', labelsize=14)
+    plt.rc('ytick', labelsize=14)
+    fig.autofmt_xdate()
 
-# Increase the size of the axis numbers
-plt.rcdefaults()
-plt.rc('xtick', labelsize=14)
-plt.rc('ytick', labelsize=14)
-fig.autofmt_xdate()
+    ax.fill_between(date_time,
+                    mu + 3*stds, mu - 3*stds,
+                    alpha=0.5, color='lightcoral',
+                    label='3$\\sigma$')
+    ax.plot(date_time, y_train, color='grey', label='Raw')
+    ax.plot(date_time, y_filtered, color='blue', label='Filtered')
+    ax.plot(date_time, mu, color="red", linewidth = 2.5, label="Cleaned")
 
-ax.fill_between(date_time,
-                mu + 3*stds, mu - 3*stds,
-                alpha=0.5, color='lightcoral',
-                label='3$\\sigma$')
-ax.plot(date_time, y_train, color='grey', label='Raw')
-ax.plot(date_time, y_filtered, color='blue', label='Filtered')
-ax.plot(date_time, mu, color="red", linewidth = 2.5, label="Cleaned")
+    ax.vlines(
+        x=date_time[::10],
+        ymin=-0.5,
+        ymax=y_train.max().item(),
+        alpha=0.3,
+        linewidth=1.5,
+        ls='--',
+        label="z0",
+        color='grey'
+    )
 
-ax.vlines(
-    x=date_time[::10],
-    ymin=-0.5,
-    ymax=y_train.max().item(),
-    alpha=0.3,
-    linewidth=1.5,
-    ls='--',
-    label="z0",
-    color='grey'
-)
-
-ax.vlines(
-    # Sparse clean data
-    x=dt_cleaned[_z_indices],
-    ymin=-0.5,
-    ymax=y_train.max().item(),
-    alpha=0.3,
-    linewidth=1.5,
-    label="z*",
-    color='orange'
-)
-ax.set_xlabel(" Date-time", fontsize=14)
-ax.set_ylabel(" Fault density", fontsize=14)
-plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
+    ax.vlines(
+        # Sparse clean data
+        x=dt_cleaned[_z_indices],
+        ymin=-0.5,
+        ymax=y_train.max().item(),
+        alpha=0.3,
+        linewidth=1.5,
+        label="z*",
+        color='orange'
+    )
+    ax.set_xlabel(" Date-time", fontsize=14)
+    ax.set_ylabel(" Fault density", fontsize=14)
+    plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
 
 #-----------------------------------------------------------------------------
 # CLUSTERING PLOT
@@ -192,7 +192,7 @@ plt.rc('xtick', labelsize=14)
 plt.rc('ytick', labelsize=14)
 
 fig.autofmt_xdate()
-ax.set_title(" Clustering performance", fontsize=18)
+ax.set_title(f"Clustering performance in partition: {i}", fontsize=18)
 if sgp.K_opt != 1:
     for i, (k, c) in enumerate(zip(enumerate_K, color_iter)):
         ax.plot(date_time[sgp.indices[k]], y_train[sgp.indices[k]],
