@@ -2,7 +2,6 @@ import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
 from pathlib import Path
-from sklearn.preprocessing import StandardScaler as ss
 from scipy import stats
 from scipy.ndimage import uniform_filter1d
 from scipy.interpolate import interp1d
@@ -12,6 +11,9 @@ from scipy.interpolate import interp1d
 # NSG post processes data location
 ROOT_PATH = Path(__file__).resolve().parent.parent
 PROCESSED_PATH = ROOT_PATH / "data" / "processed" / "Training_data_partitions"
+
+# initialise variables
+smoothed_full = []
 
 for i in range(5):
     file = PROCESSED_PATH / f'clean{i}.xlsx'
@@ -66,7 +68,7 @@ for i in range(5):
     else:
         # Create an interpolation function using the known data
         interp_func = interp1d(known_time, known_values, kind='cubic',
-                            fill_value="extrapolate")
+                               fill_value="extrapolate")
 
         # Interpolate values at the outlier locations
         time_to_interpolate = x_indices[outlier_indices_found]
@@ -83,14 +85,46 @@ for i in range(5):
         pass
     else:
         smoothed = uniform_filter1d(smoothed, size=window_size_ndimage)
+    
+    # 3. Interpolate at nonfurnace faults locations
+    nonff_indices = [x for x in range(len(X_test)) if x not in iclean]
+    print(f'\nsmoother type: {type(smoothed)}')
+    print(f'\n non furnace faults indices: {nonff_indices}')
+
+    x_indices = np.linspace(0, 20, len(date_time))
+    known_time = x_indices[iclean]
+
+    # Ensure there are enough known points to interpolate
+    if len(known_indices) < 2:
+        print("Not enough non-outlier points to perform interpolation. Exiting.")
+    else:
+        # Create an interpolation function using the known data
+        interp_func = interp1d(known_time, smoothed, kind='cubic',
+                               fill_value="extrapolate")
+
+        # Interpolate values at the non-furnace faults locations
+        time_to_interpolate = x_indices[nonff_indices]
+        interpolated_values = interp_func(time_to_interpolate)
+
+        # Replace the outlier values with the interpolated values
+        y_raw[nonff_indices] = interpolated_values
+        y_raw[iclean] = smoothed
+        y_processed = np.copy(y_raw)
 
     """ SAVE PROCESSED DATA """
-    # save filtered data
-    X_test_df = pd.DataFrame(X_test)
-    y_test_df = pd.DataFrame(smoothed)
-    processed_data = pd.concat([X_test_df, y_test_df], axis=1)
-
-    processed_data.to_csv(f"{PROCESSED_PATH}/data{i}.csv", index=False)
+    # with pd.ExcelWriter(f"{PROCESSED_PATH}/data{i}.xlsx", engine='openpyxl') as writer:
+    #     X_df.to_excel(writer, sheet_name='X_stand', index=False)
+    #     X_df_norm = pd.read_excel(file, sheet_name='X_stand')
+    #     X_df_norm.to_excel(writer, sheet_name='X_norm', index=False)
+    #     # y
+    #     y_df.drop(columns=['gp_pred'], inplace=True)
+    #     y_df['y_processed'] = smoothed
+    #     y_df.to_excel(writer, sheet_name='y_nonstand', index=False)
+    #     # time-lags
+    #     t_df.to_excel(writer, sheet_name='timelags', index=False)
+    #     # furnace-faults indices
+    #     indices_df = pd.DataFrame({'indices': iclean})
+    #     indices_df.to_excel(writer, sheet_name='clean_indices', index=False) 
 
     """ Plots """
     fig, ax = plt.subplots()
@@ -105,6 +139,7 @@ for i in range(5):
     ax.plot(dt_clean, yff, 'o', color='green', label='DPSGP')
     ax.plot(date_time, y_filtered, color='blue', label='y_filtered')
     ax.plot(dt_clean, smoothed, color='red', label='smoothed')
+    ax.plot(date_time, y_processed, color='magenta', label='y_processed')
 
     ax.vlines(
         x=dt_clean[outliers_indices],
