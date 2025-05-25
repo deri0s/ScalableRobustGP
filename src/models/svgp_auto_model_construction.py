@@ -76,10 +76,10 @@ class GPTraining():
 
         # Covariance functions building blocks
         self.base_kernels = {
-            # 'RBF': lambda: RBF(ard_num_dims=self.D, dtype=self.dtype),
+            'RBF': lambda: RBF(ard_num_dims=self.D, dtype=self.dtype),
             'RQ': lambda: RQ(ard_num_dims=self.D, dtype=self.dtype),
-            # 'Lin': lambda: Lin(ard_num_dims=self.D, dtype=self.dtype), # Uncomment if needed
-            # 'Per': lambda: Per(ard_num_dims=self.D, dtype=self.dtype), # Uncomment if needed
+            'Lin': lambda: Lin(ard_num_dims=self.D, dtype=self.dtype), # Uncomment if needed
+            'Per': lambda: Per(ard_num_dims=self.D, dtype=self.dtype), # Uncomment if needed
             }
         self._validate_base_kernels() # Check if factories produce Kernels
 
@@ -260,8 +260,61 @@ class GPTraining():
                  self.param_centers[ls_param_name] = ls_val.tolist() if isinstance(ls_val, np.ndarray) else [ls_val.item()]
             param_applied = True
 
-        # --- Add elif blocks for Lin, Per if used ---
-        # elif isinstance(module, Per): ... handle period_length and lengthscale ...
+        # --- Periodic Kernel ---
+        elif isinstance(module, Per):
+            ard = getattr(module, 'ard_num_dims', None) == self.D
+            # Period Length (usually scalar)
+            period_param_name = f"{module_name_prefix}.period_length"
+            period_key = 'per_period_length'
+            if sample_type == 'uniform':
+                limits = self._validate_limits(self.param_limits.get(period_key), period_param_name)
+                val = self._sample_param_uniform(limits)
+                module.period_length = torch.tensor(max(val, 1e-6), dtype=self.dtype)
+            elif sample_type == 'gaussian':
+                center = self.param_centers.get(period_param_name)
+                std = self._validate_std(self.param_stds.get(period_key), period_param_name)
+                if center is None: raise ValueError(f"Center not set for {period_param_name}")
+                val = self._sample_param_gauss(center, std)
+                module.period_length = torch.tensor(val, dtype=self.dtype)
+            elif sample_type == 'center':
+                self.param_centers[period_param_name] = module.period_length.item()
+
+            # Lengthscale (can be ARD)
+            ls_param_name = f"{module_name_prefix}.lengthscale"
+            ls_key = 'per_lengthscale'
+            if sample_type == 'uniform':
+                limits = self._validate_limits(self.param_limits.get(ls_key), ls_param_name)
+                ls = np.array([self._sample_param_uniform(limits) for _ in range(self.D)] if ard else [self._sample_param_uniform(limits)])
+                module.lengthscale = torch.tensor(np.maximum(ls, 1e-6), dtype=self.dtype)
+            elif sample_type == 'gaussian':
+                 center_list = self.param_centers.get(ls_param_name)
+                 std_list = self._validate_ard_param(self.param_stds.get(ls_key), ls_param_name, is_std=True)
+                 if center_list is None: raise ValueError(f"Center not set for {ls_param_name}")
+                 ls = np.array([self._sample_param_gauss(center_list[d], std_list[d]) for d in range(self.D if ard else 1)])
+                 module.lengthscale = torch.tensor(ls, dtype=self.dtype)
+            elif sample_type == 'center':
+                 ls_val = module.lengthscale.detach().cpu().squeeze().numpy()
+                 self.param_centers[ls_param_name] = ls_val.tolist() if isinstance(ls_val, np.ndarray) else [ls_val.item()]
+            param_applied = True
+
+        # --- Linear Kernel ---
+        elif isinstance(module, Lin):
+            # Variance (usually scalar)
+            var_param_name = f"{module_name_prefix}.variance"
+            var_key = 'lin_variance'
+            if sample_type == 'uniform':
+                limits = self._validate_limits(self.param_limits.get(var_key), var_param_name)
+                val = self._sample_param_uniform(limits)
+                module.variance = torch.tensor(max(val, 1e-6), dtype=self.dtype)
+            elif sample_type == 'gaussian':
+                center = self.param_centers.get(var_param_name)
+                std = self._validate_std(self.param_stds.get(var_key), var_param_name)
+                if center is None: raise ValueError(f"Center not set for {var_param_name}")
+                val = self._sample_param_gauss(center, std)
+                module.variance = torch.tensor(val, dtype=self.dtype)
+            elif sample_type == 'center':
+                 self.param_centers[var_param_name] = module.variance.item()
+            param_applied = True
 
         # Return True if any parameter was applied to this specific module instance
         return param_applied
