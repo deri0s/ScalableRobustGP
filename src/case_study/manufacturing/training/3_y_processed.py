@@ -67,7 +67,7 @@ for i in range(5):
         print("Not enough non-outlier points to perform interpolation. Exiting.")
     else:
         # Create an interpolation function using the known data
-        interp_func = interp1d(known_time, known_values, kind='cubic',
+        interp_func = interp1d(known_time, known_values, kind='linear',
                                fill_value="extrapolate")
 
         # Interpolate values at the outlier locations
@@ -88,8 +88,6 @@ for i in range(5):
     
     # 3. Interpolate at nonfurnace faults locations
     nonff_indices = [x for x in range(len(X_test)) if x not in iclean]
-    print(f'\nsmoother type: {type(smoothed)}')
-    print(f'\n non furnace faults indices: {nonff_indices}')
 
     x_indices = np.linspace(0, 20, len(date_time))
     known_time = x_indices[iclean]
@@ -99,7 +97,7 @@ for i in range(5):
         print("Not enough non-outlier points to perform interpolation. Exiting.")
     else:
         # Create an interpolation function using the known data
-        interp_func = interp1d(known_time, smoothed, kind='cubic',
+        interp_func = interp1d(known_time, smoothed, kind='quadratic',
                                fill_value="extrapolate")
 
         # Interpolate values at the non-furnace faults locations
@@ -109,22 +107,33 @@ for i in range(5):
         # Replace the outlier values with the interpolated values
         y_raw[nonff_indices] = interpolated_values
         y_raw[iclean] = smoothed
-        y_processed = np.copy(y_raw)
+        # eliminate wiggles from the quadratic interpolation
+        if i == 1:
+            y_processed = uniform_filter1d(np.copy(y_raw), size=40)
+            y_processed[int(len(y_raw)/2) + 480: len(y_raw)] = uniform_filter1d(y_raw[int(len(y_raw)/2) + 480: len(y_raw)], size=100)
+        else:
+            y_processed = uniform_filter1d(np.copy(y_raw), size=40)
+
+    # 4. Assemble full training targets for Deep Learning
+    if i == 0:
+        y_processed_all = np.copy(y_processed)
+    else:
+        y_processed_all = np.concatenate((y_processed_all, y_processed))
 
     """ SAVE PROCESSED DATA """
-    # with pd.ExcelWriter(f"{PROCESSED_PATH}/data{i}.xlsx", engine='openpyxl') as writer:
-    #     X_df.to_excel(writer, sheet_name='X_stand', index=False)
-    #     X_df_norm = pd.read_excel(file, sheet_name='X_stand')
-    #     X_df_norm.to_excel(writer, sheet_name='X_norm', index=False)
-    #     # y
-    #     y_df.drop(columns=['gp_pred'], inplace=True)
-    #     y_df['y_processed'] = smoothed
-    #     y_df.to_excel(writer, sheet_name='y_nonstand', index=False)
-    #     # time-lags
-    #     t_df.to_excel(writer, sheet_name='timelags', index=False)
-    #     # furnace-faults indices
-    #     indices_df = pd.DataFrame({'indices': iclean})
-    #     indices_df.to_excel(writer, sheet_name='clean_indices', index=False) 
+    with pd.ExcelWriter(f"{PROCESSED_PATH}/data{i}.xlsx", engine='openpyxl') as writer:
+        X_df.to_excel(writer, sheet_name='X_stand', index=False)
+        X_df_norm = pd.read_excel(file, sheet_name='X_stand')
+        X_df_norm.to_excel(writer, sheet_name='X_norm', index=False)
+        # y
+        y_df.drop(columns=['gp_pred'], inplace=True)
+        y_df['y_processed'] = y_processed
+        y_df.to_excel(writer, sheet_name='y_nonstand', index=False)
+        # time-lags
+        t_df.to_excel(writer, sheet_name='timelags', index=False)
+        # furnace-faults indices
+        indices_df = pd.DataFrame({'indices': iclean})
+        indices_df.to_excel(writer, sheet_name='clean_indices', index=False) 
 
     """ Plots """
     fig, ax = plt.subplots()
@@ -138,8 +147,8 @@ for i in range(5):
     ax.plot(date_time, y_raw, color='grey', label='y-raw')
     ax.plot(dt_clean, yff, 'o', color='green', label='DPSGP')
     ax.plot(date_time, y_filtered, color='blue', label='y_filtered')
-    ax.plot(dt_clean, smoothed, color='red', label='smoothed')
-    ax.plot(date_time, y_processed, color='magenta', label='y_processed')
+    ax.plot(dt_clean, smoothed, color='orange', label='smoothed')
+    ax.plot(date_time, y_processed, linewidth=1.5, color='red', label='y_processed')
 
     ax.vlines(
         x=dt_clean[outliers_indices],
@@ -158,5 +167,25 @@ for i in range(5):
     ax.set_xlabel(" Date-time", fontsize=14)
     ax.set_ylabel(" Fault density", fontsize=14)
     plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
+
+# Assemble full training dataset
+# PROCESSED_PATH = ROOT_PATH / "data" / "processed"
+# file = PROCESSED_PATH / "NSG_processed_data.xlsx"
+# # X
+# X_df = pd.read_excel(file, sheet_name='X_stand')
+# X_df_norm = pd.read_excel(file, sheet_name='X_stand')
+# # y
+# y_df = pd.read_excel(file, sheet_name='y')
+# y_df['y_processed'] = y_processed_all
+# y_df['date_time'] = y_df['Time stamp'].values
+# y_df['y_raw'] = pd.read_excel(file, sheet_name='y_raw')['raw_furnace_faults'].values
+
+# y_df.drop(columns=['furnace_faults', 'Hig values replaced', 'Low values replaced'], inplace=True)
+# with pd.ExcelWriter(f"{PROCESSED_PATH}/training_data.xlsx", engine='openpyxl') as writer:
+#     X_df.to_excel(writer, sheet_name='X_stand', index=False)
+#     X_df_norm.to_excel(writer, sheet_name='X_norm', index=False)
+#     y_df.to_excel(writer, sheet_name='y_nonstand', index=False)
+#     # time-lags
+#     t_df.to_excel(writer, sheet_name='timelags', index=False)
 
 plt.show()
