@@ -114,7 +114,7 @@ if len(y_test_nonstand) != len(X_test_np):
 y_train_reshape = y_train_nonstand.reshape(-1,1)
 scaler = ss()
 scaler.fit(y_train_reshape)
-y_norm_np = scaler.transform(y_train_reshape)
+y_stand_np = scaler.transform(y_train_reshape)
 
 y_test_reshape = y_test_nonstand.reshape(-1,1)
 scaler.fit(y_test_reshape)
@@ -123,7 +123,7 @@ y_test_stand = scaler.transform(y_test_reshape)
 # Convert data to torch tensors
 floating_point = torch.float64
 X_train = torch.tensor(X_train_np, dtype=floating_point)
-y_train = torch.tensor(y_norm_np, dtype=floating_point).squeeze()
+y_train = torch.tensor(y_stand_np, dtype=floating_point).squeeze()
 X_test = torch.tensor(X_test_np, dtype=floating_point)
 y_test = torch.tensor(y_test_stand, dtype=floating_point).squeeze()
 X_all = torch.tensor(X, dtype=floating_point) # Full X for final prediction/plot
