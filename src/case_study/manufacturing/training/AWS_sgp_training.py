@@ -14,7 +14,7 @@ from gpytorch.constraints import GreaterThan
 from models.svgp_auto_model_construction import GPTraining, SVGP
 
 def model_fn(model_dir):
-    """Load the trained model from the model directory."""
+    """ Load the trained model from the model directory """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = torch.load(os.path.join(model_dir, "sgpr_model.pth"), map_location=device)
     model.eval()
@@ -33,8 +33,8 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--training_iterations', type=int, default=100)
     parser.add_argument('--lr', type=float, default=0.01)
-    parser.add_argument('--levels', type=int, default=2)
-    parser.add_argument('--N_sim', type=int, default=10000)
+    parser.add_argument('--levels', type=int, default=1)
+    parser.add_argument('--N_sim', type=int, default=5)
     # SageMaker specific arguments
     parser.add_argument('--model-dir', type=str, default=os.environ['SM_MODEL_DIR'])
     parser.add_argument('--train', type=str, default=os.environ['SM_CHANNEL_TRAIN'])
@@ -54,7 +54,7 @@ if __name__ == "__main__":
     X_test_np = test_data['X']
     y_test_nonstand = test_data['y']
 
-    # Standardize outputs
+    # Standardise outputs
     y_train_reshape = y_train_nonstand.reshape(-1,1)
     scaler = StandardScaler()
     scaler.fit(y_train_reshape)
@@ -87,11 +87,14 @@ if __name__ == "__main__":
 
     # Define parameter limits
     limits = {
-    'outputscale': [0.1, 10.0],
-    'se_lengthscale': [0.05, 100.0],
-    'rq_lengthscale': [0.05, 100.0],
-    'rq_alpha': [0.05, 5],
-    'noise_variance': [0.025, 0.028]
+        'outputscale': [0.1, 10.0],
+        'se_lengthscale': [0.05, 100.0],
+        'rq_lengthscale': [0.05, 100.0],
+        'rq_alpha': [0.05, 5],
+        'per_period_length': [6, 10],
+        'per_lengthscale': [0.05, 100.0],
+        'lin_variance': [0.1*0.025, 0.025],
+        'noise_variance': [0.025, 0.028]
     }
     # Automatic Model Construction
     auto_trainer = GPTraining(gp0, X_train, y_train, X_test, y_test)
@@ -146,6 +149,6 @@ if __name__ == "__main__":
     print(f"Final MSE: {mse}")
 
     # Save the model
-    torch.save(tuned_gp, os.path.join(args.model_dir, "sgpr_model.pth"))
-    # Also save the scaler for inference
-    torch.save(scaler, os.path.join(args.model_dir, "scaler.pth"))
+    # torch.save(tuned_gp, os.path.join(args.model_dir, "sgpr_model.pth"))
+    # # Also save the scaler for inference
+    # torch.save(scaler, os.path.join(args.model_dir, "scaler.pth"))

@@ -470,7 +470,10 @@ class GPTraining():
             for name2, kernel_factory2 in operands_2.items():
                 # treat "RBF + RQ" the same as "RQ + RBF"
                 sorted_names = sorted([name1, name2])
-                new_name = f"({sorted_names[0]} {operation} {sorted_names[1]})"
+                if name1 == name2:
+                    continue
+                else:
+                    new_name = f"({sorted_names[0]} {operation} {sorted_names[1]})"
 
                 # Skip if this combination already created (handles commutativity and self-combination)
                 if new_name in created_keys:
