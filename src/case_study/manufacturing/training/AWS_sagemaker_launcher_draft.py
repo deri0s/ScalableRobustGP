@@ -8,7 +8,6 @@ import pandas as pd
 
 def prepare_data_partition(partition_index, bucket_name='gpr-amc-bucket'):
     """ Prepare and upload a specific data partition to S3 """
-    # Load your full dataset here
     ROOT_PATH = Path(__file__).resolve().parent.parent
     PROCESSED_PATH = ROOT_PATH / "data" / "processed" / "Training_data_partitions"
     file = PROCESSED_PATH / f'data{partition_index}.xlsx'

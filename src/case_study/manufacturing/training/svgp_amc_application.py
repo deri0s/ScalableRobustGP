@@ -175,10 +175,10 @@ limits = {
     'noise_variance': [0.025, 0.028]  # Limits for Likelihood noise
 }
 
-# Automatic Model Construction: Grid search parameters - Updated for level=3
+# Automatic Model Construction: Grid search parameters
 try:
     gp_gs = auto_trainer.auto_model_cons(
-        levels=2,
+        levels=1,
         N_sim=5,
         param_limits=limits,
         mse_stop=0.045,
