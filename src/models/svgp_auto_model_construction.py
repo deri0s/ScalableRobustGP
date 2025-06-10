@@ -48,7 +48,9 @@ class SVGP(ApproximateGP):
 
 
 class GPTraining():
-    def __init__(self, gp0: SVGP, X_train: torch.Tensor, y_train: torch.Tensor,
+    def __init__(self, gp0: SVGP,
+                 X_train: torch.Tensor, y_train: torch.Tensor,
+                 X_eval: torch.Tensor, y_eval: np.ndarray,
                  X_test: torch.Tensor, y_test: np.ndarray):
         super(GPTraining, self).__init__()
 
@@ -65,6 +67,8 @@ class GPTraining():
         self.gp0 = gp0 # Keep the initial model structure
         self.X_train = X_train
         self.y_train = y_train
+        self.X_eval = X_eval
+        self.y_eval = y_eval
         self.X_test = X_test
         self.y_test = y_test
         self.N, self.D = self.X_train.shape
@@ -78,8 +82,8 @@ class GPTraining():
         self.base_kernels = {
             'RBF': lambda: RBF(ard_num_dims=self.D, dtype=self.dtype),
             'RQ': lambda: RQ(ard_num_dims=self.D, dtype=self.dtype),
-            'Lin': lambda: Lin(ard_num_dims=self.D, dtype=self.dtype), # Uncomment if needed
-            'Per': lambda: Per(ard_num_dims=self.D, dtype=self.dtype), # Uncomment if needed
+            'Lin': lambda: Lin(ard_num_dims=self.D, dtype=self.dtype),
+            'Per': lambda: Per(ard_num_dims=self.D, dtype=self.dtype),
             }
         self._validate_base_kernels() # Check if factories produce Kernels
 
@@ -409,53 +413,28 @@ class GPTraining():
                      # Optionally: break epoch, return inf, etc.
                      return float('inf') # Indicate failure
 
-        # --- Predictions & Evaluation on Held-Out Test Set ---
+        # Evaluation on validation set (for model selection)
         gp.eval()
         gp.likelihood.eval()
-
-        if len(self.X_test) == 0: # test data exists?
-            print("Warning: No test data (X_test is empty). Skipping evaluation.")
-            return 0.0 # Or Inf? Depends on desired behavior. Let's return 0 if no test data.
-
-        test_dataset = TensorDataset(self.X_test)
-        # Use a reasonable batch size for prediction, doesn't have to match training
-        pred_batch_size = min(batch_size * 2, len(self.X_test)) if len(self.X_test) > 0 else 1
-        test_dataloader = DataLoader(test_dataset, batch_size=pred_batch_size, shuffle=False)
-
-        all_pred_means = []
+        
+        X_eval = self.X_eval
+        y_eval = self.y_eval
+        
+        if len(X_eval) == 0:
+            print("Warning: No evaluation data available.")
+            return 0.0
+        
+        # Prediction
         with torch.no_grad(), gpytorch.settings.fast_pred_var():
-             try:
-                 for (x_batch,) in test_dataloader: # Need comma for unpacking
-                     # Ensure x_batch is on the correct device if using GPU
-                     # x_batch = x_batch.to(self.X_train.device)
-                     observed_pred_batch = gp.likelihood(gp(x_batch))
-                     all_pred_means.append(observed_pred_batch.mean.cpu()) # Collect means
-             except Exception as e:
-                  print(f"Error during prediction: {e}")
-                  return float('inf') # Indicate prediction failure
-
-        # Handle case where prediction might have failed silently
-        if not all_pred_means:
-             print("Prediction resulted in no collected means.")
-             return float('inf')
-
-        pred_mean_tensor = torch.cat(all_pred_means)
-
-        try:
-            mu = pred_mean_tensor.unsqueeze(1)
-        except Exception as e:
-             print(f"Error during inverse transform: {e}")
-             print(f"Shape of pred_mean_tensor: {pred_mean_tensor.shape}")
-             return float('inf')
-
-        if len(mu) != len(self.y_test):
-             print(f"Warning: Length mismatch between predictions ({len(mu)}) and test targets ({len(self.y_test)}). Cannot calculate MSE.")
-             # This might happen if prediction failed partway through
-             return float('inf')
-
-        test_error = mean_squared_error(mu, self.y_test)
-
-        return test_error
+            try:
+                observed_pred = gp.likelihood(gp(X_eval))
+                pred_means = observed_pred.mean.cpu()
+            except Exception as e:
+                print(f"Error during prediction: {e}")
+                return float('inf')
+        
+        # Calculate validation MSE for model selection
+        return mean_squared_error(pred_means, y_eval)
 
 
     def combine_kernels(self, operands_1: dict, operation: str, operands_2: dict) -> dict:
@@ -687,7 +666,7 @@ class GPTraining():
                      continue # Skip failed simulation update
 
                 mse_list.append(mse)
-                print(f'Sim {i+1}/{N_sim} | Error: {mse:.5f} | Current Best: {best_mse:.5f}')
+                print(f'Sim {i+1}/{N_sim} | Error (Eval): {mse:.5f} | Current Best: {best_mse:.5f}')
 
                 # Update best MSE and model state dict
                 if mse < best_mse:
