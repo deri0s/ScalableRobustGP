@@ -39,13 +39,15 @@ if __name__ == "__main__":
     parser.add_argument('--training_iterations', type=int, default=100)
     parser.add_argument('--lr', type=float, default=0.009)
     parser.add_argument('--levels', type=int, default=1)
-    parser.add_argument('--N_sim', type=int, default=5)
+    parser.add_argument('--N_sim', type=int, default=3)
     # SageMaker specific arguments
     ROOT_PATH = Path(__file__).resolve()
-    print('crrent-path: ', ROOT_PATH.parent)
+    print('crrent-path: ', ROOT_PATH.parent, '\n')
     # parser.add_argument('--model-dir', type=str, default=os.environ['SM_MODEL_DIR'])
-    parser.add_argument('--train', type=str, default=os.environ[str(ROOT_PATH)])
+    # parser.add_argument('--test', type=str, default=os.environ['SM_CHANNEL_TRAIN'])
     # parser.add_argument('--test', type=str, default=os.environ['SM_CHANNEL_TEST'])
+    parser.add_argument('--train', type=str, default=os.getcwd())
+    parser.add_argument('--test', type=str, default=os.getcwd())
     args = parser.parse_args()
     
     # Set device
@@ -79,7 +81,7 @@ if __name__ == "__main__":
     N_train, D = X_train.shape
 
     import warnings
-    M = 120 # Number of inducing points
+    M = 40 # Number of inducing points
     init_ip_method = 'kmeans++'
 
     if init_ip_method == 'random':
@@ -272,8 +274,8 @@ if __name__ == "__main__":
         gp_reduced.to(floating_point)        
     else:
         print("\n✓ No features removed (all lengthscales <= 50). Using original data for tuning.")
-        X_train_filtered = X_train
-        X_test_filtered = X_test
+        X_train_reduced = X_train
+        X_test_reduced = X_test
         D_filtered = D
         gp_reduced = gp_gs
 
@@ -306,7 +308,7 @@ if __name__ == "__main__":
                 'lin_variance': 1e-3,
                 'noise_variance': 1e-4}
         
-        auto_tuner = GPTraining(gp_reduced, X_train_filtered, y_train, X_test_filtered, y_test)
+        auto_tuner = GPTraining(gp_reduced, X_train_reduced, y_train, X_train_reduced, y_test)
         auto_tuner.param_stds = stds
 
         """ Hyperparameter tunning """
@@ -346,7 +348,7 @@ if __name__ == "__main__":
         print("No tuning performed (using original model)")
         tuned_gp = gp_reduced
 
-    # Save the model
+    # # Save the model
     # torch.save(tuned_gp, os.path.join(args.model_dir, "sgpr_model.pth"))
-    # # Also save the scaler for inference
+    # # and the scaler for inference
     # torch.save(scaler, os.path.join(args.model_dir, "scaler.pth"))

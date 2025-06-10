@@ -1,8 +1,9 @@
+import boto3
 import numpy as np
 from pathlib import Path
 import pandas as pd
 
-def prepare_data_partition(partition_index):
+def generate_partition(partition_index, bucket_name):
     """ Prepare and upload a specific data partition to S3 """
     ROOT_PATH = Path(__file__).resolve().parent.parent
     PROCESSED_PATH = ROOT_PATH / "data" / "processed" / "Training_data_partitions"
@@ -65,7 +66,20 @@ def prepare_data_partition(partition_index):
     y_test = y[end_train:]
 
     # Save to temporary files
+    # Code for local testing
     np.savez('train_data.npz', X=X_train, y=y_train)
     np.savez('test_data.npz', X=X_test, y=y_test)
+    np.savez('all_data.npz', X=)
 
-prepare_data_partition(2)
+    # # Upload to S3
+    # s3_client = boto3.client('s3')
+    # partition_name = f'expert{partition_index}'
+    # s3_client.upload_file('train_data.npz', bucket_name,
+    #                       f'data/{partition_name}/train/train_data.npz')
+    # s3_client.upload_file('test_data.npz', bucket_name,
+    #                       f'data/{partition_name}/test/test_data.npz')
+
+# Generate the 5 data partitions
+N_partitions = 5
+for i in range(1, N_partitions):
+    generate_partition(i, 'gpr-amc-bucket')
