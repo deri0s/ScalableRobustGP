@@ -6,6 +6,7 @@ from numpy.random import uniform
 import random
 from sklearn.metrics import mean_squared_error
 import traceback # For detailed error printing
+import matplotlib.pyplot as plt
 
 # GPyTorch imports
 from gpytorch.models import ApproximateGP
@@ -50,8 +51,7 @@ class SVGP(ApproximateGP):
 class GPTraining():
     def __init__(self, gp0: SVGP,
                  X_train: torch.Tensor, y_train: torch.Tensor,
-                 X_eval: torch.Tensor, y_eval: np.ndarray,
-                 X_test: torch.Tensor, y_test: np.ndarray):
+                 X_eval: torch.Tensor, y_eval: np.ndarray):
         super(GPTraining, self).__init__()
 
         # --- Input Validation ---
@@ -61,16 +61,14 @@ class GPTraining():
              raise TypeError("X_train and y_train must be torch Tensors.")
         if X_train.shape[0] != y_train.shape[0]:
             raise ValueError(f"X_train ({X_train.shape[0]}) and y_train ({y_train.shape[0]}) must have the same number of samples.")
-        if len(y_test) == 0:
-            print("Warning: y_test is empty.")
+        if len(y_eval) == 0:
+            print("Warning: y_eval is empty.")
 
         self.gp0 = gp0 # Keep the initial model structure
         self.X_train = X_train
         self.y_train = y_train
         self.X_eval = X_eval
         self.y_eval = y_eval
-        self.X_test = X_test
-        self.y_test = y_test
         self.N, self.D = self.X_train.shape
         self.nv0 = self.gp0.likelihood.noise.item() # Initial noise
         self.M = len(self.gp0.variational_strategy.inducing_points)
@@ -209,6 +207,7 @@ class GPTraining():
         # --- RBF Kernel ---
         elif isinstance(module, RBF):
             param_base_name = f"{module_name_prefix}.lengthscale"
+            print(f'\nparam base name: {param_base_name}')
             limits_or_std_key = 'se_lengthscale' # Unique key for RBF lengthscale
             ard = getattr(module, 'ard_num_dims', None) == self.D
 
@@ -416,25 +415,22 @@ class GPTraining():
         # Evaluation on validation set (for model selection)
         gp.eval()
         gp.likelihood.eval()
-        
-        X_eval = self.X_eval
-        y_eval = self.y_eval
-        
-        if len(X_eval) == 0:
+                
+        if len(self.X_eval) == 0:
             print("Warning: No evaluation data available.")
             return 0.0
         
         # Prediction
         with torch.no_grad(), gpytorch.settings.fast_pred_var():
             try:
-                observed_pred = gp.likelihood(gp(X_eval))
+                observed_pred = gp.likelihood(gp(self.X_eval))
                 pred_means = observed_pred.mean.cpu()
             except Exception as e:
                 print(f"Error during prediction: {e}")
                 return float('inf')
         
         # Calculate validation MSE for model selection
-        return mean_squared_error(pred_means, y_eval)
+        return mean_squared_error(pred_means, self.y_eval)
 
 
     def combine_kernels(self, operands_1: dict, operation: str, operands_2: dict) -> dict:
@@ -634,7 +630,9 @@ class GPTraining():
 
     def grid_search(self, gp_template: ApproximateGP, N_sim,
                     lr=0.01, training_iterations=100, batch_size=256):
-        """ Performs random search over hyperparameters defined in self.param_limits. """
+        """ Sample random hyperparameters (param_limits) to initialise
+            the neg-log-Margilag-Likelihood for the optimisation step (training)
+        """
 
         # Access limits/stop condition stored in self
         mse_list = []
@@ -686,30 +684,30 @@ class GPTraining():
 
         return best_state_dict, mse_list
 
-
     def tune(self, gp_to_tune: ApproximateGP, N_sim, mse_stop=1e-3,
-             lr=0.01, training_iterations=100, batch_size=64):
+            lr=0.01, training_iterations=100, batch_size=64, plot_mse=True):
         """ Fine-tunes a GP by sampling params from Gaussian distribution """
 
         # Validation of stds happens during initialise_params
         self.mse_stop = mse_stop
         mse_list = []
+        training_mse_list = []  # Track training MSE
+        validation_mse_list = []  # Track validation MSE
 
         # initialise MSE
         gp_to_tune.eval()
         gp_to_tune.likelihood.eval()
         with torch.no_grad(), gpytorch.settings.fast_pred_var():
-            observed_pred = gp_to_tune.likelihood(gp_to_tune(self.X_test))
+            observed_pred = gp_to_tune.likelihood(gp_to_tune(self.X_eval))
         
-        best_mse = mean_squared_error(observed_pred.mean, self.y_test)
+        best_mse = mean_squared_error(observed_pred.mean, self.y_eval)
 
-        print("\n--- Starting Fine Tuning ---\n")
         try:
             self.initialise_params(gp_to_tune, 'center')
         except Exception as e:
-             print(f"Error setting initial centers for tuning: {e}")
-             traceback.print_exc()
-             return copy.deepcopy(gp_to_tune) # Original if centering fails
+            print(f"Error setting initial centers for tuning: {e}")
+            traceback.print_exc()
+            return copy.deepcopy(gp_to_tune) # Original if centering fails
 
         best_gp = copy.deepcopy(gp_to_tune) # Start with the input GP as best
 
@@ -719,33 +717,99 @@ class GPTraining():
             try:
                 self.initialise_params(current_sim_gp, 'gaussian')
 
-                mse = self.train_and_evaluate(current_sim_gp, lr, training_iterations, batch_size)
+                # Get validation MSE from train_and_evaluate
+                validation_mse = self.train_and_evaluate(current_sim_gp, lr, training_iterations, batch_size)
 
-                if mse == float('inf'):
-                     print(f"Tuning simulation {i+1} failed during training/evaluation.")
-                     mse_list.append(mse)
-                     continue
+                if validation_mse == float('inf'):
+                    print(f"Tuning simulation {i+1} failed during training/evaluation.")
+                    mse_list.append(validation_mse)
+                    training_mse_list.append(float('inf'))
+                    validation_mse_list.append(float('inf'))
+                    continue
 
-                mse_list.append(mse)
-                print(f'Tune Sim {i+1}/{N_sim} | Error: {mse:.5f} | Current Best: {best_mse:.5f}')
+                # Calculate training MSE
+                current_sim_gp.eval()
+                current_sim_gp.likelihood.eval()
+                with torch.no_grad(), gpytorch.settings.fast_pred_var():
+                    train_pred = current_sim_gp.likelihood(current_sim_gp(self.X_train))
+                    training_mse = mean_squared_error(train_pred.mean.cpu(), self.y_train.cpu())
+
+                # Store MSE values for plotting
+                mse_list.append(validation_mse)
+                training_mse_list.append(training_mse)
+                validation_mse_list.append(validation_mse)
+
+                print(f'Tune Sim {i+1}/{N_sim} | Train MSE: {training_mse:.5f} | Val MSE: {validation_mse:.5f} | Current Best: {best_mse:.5f}')
 
                 # Update best model if improvement
-                if mse < best_mse:
-                    print(f"\nFound better parameters during tuning! MSE: {mse:.5f} < {best_mse:.5f}\n")
-                    best_mse = mse
+                if validation_mse < best_mse:
+                    print(f"\nFound better parameters during tuning! Val MSE: {validation_mse:.5f} < {best_mse:.5f}\n")
+                    best_mse = validation_mse
                     best_gp = copy.deepcopy(current_sim_gp) # Keep the whole model
                     # Option: Re-center Gaussian around the new best? (Can sometimes lock in too early)
                     # self.initialise_params(best_gp, 'center')
 
                     # Check early stopping
-                    if self.mse_stop is not None and mse < self.mse_stop:
+                    if self.mse_stop is not None and validation_mse < self.mse_stop:
                         print(f'!! Target MSE ({self.mse_stop}) reached. Stopping Tuning early. !!')
                         break # Stop simulation loop
 
             except Exception as e:
-                 print(f"ERROR during tuning simulation {i+1}: {e}")
-                 traceback.print_exc()
-                 mse_list.append(float('inf'))
+                print(f"ERROR during tuning simulation {i+1}: {e}")
+                traceback.print_exc()
+                mse_list.append(float('inf'))
+                training_mse_list.append(float('inf'))
+                validation_mse_list.append(float('inf'))
 
         print(f"\n--- Tuning Finished. Best MSE: {best_mse:.5f} ---")
+        
+        # Plot MSE evolution if requested
+        if plot_mse and len(training_mse_list) > 0:
+            self._plot_tuning_mse(training_mse_list, validation_mse_list, N_sim)
+        
         return best_gp
+
+    def _plot_tuning_mse(self, training_mse_list, validation_mse_list, N_sim):
+        """ Helper method to plot training and validation MSE over tuning iterations """
+        
+        # Filter out infinite values for plotting
+        valid_indices = [i for i, (train_mse, val_mse) in enumerate(zip(training_mse_list, validation_mse_list)) 
+                        if train_mse != float('inf') and val_mse != float('inf')]
+        
+        if not valid_indices:
+            print("Warning: No valid MSE values to plot.")
+            return
+        
+        valid_train_mse = [training_mse_list[i] for i in valid_indices]
+        valid_val_mse = [validation_mse_list[i] for i in valid_indices]
+        valid_iterations = [i + 1 for i in valid_indices]  # 1-indexed for display
+        
+        plt.figure(figsize=(10, 6))
+        plt.plot(valid_iterations, valid_train_mse, 'b-', label='Training MSE', alpha=0.7, marker='o', markersize=4)
+        plt.plot(valid_iterations, valid_val_mse, 'r-', label='Validation MSE', alpha=0.7, marker='s', markersize=4)
+        
+        # Highlight the best validation MSE
+        best_val_idx = valid_val_mse.index(min(valid_val_mse))
+        best_iteration = valid_iterations[best_val_idx]
+        best_val_mse = valid_val_mse[best_val_idx]
+        
+        plt.scatter(best_iteration, best_val_mse, color='red', s=100, marker='*', 
+                    label=f'Best Val MSE: {best_val_mse:.5f}', zorder=5)
+        
+        plt.xlabel('Tuning Iteration')
+        plt.ylabel('Mean Squared Error')
+        plt.title('Training and Validation MSE During Hyperparameter Tuning')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.yscale('log')  # Log scale often better for MSE visualization
+        
+        # Add text box with summary statistics
+        textstr = f'Total Iterations: {len(valid_iterations)}/{N_sim}\n'
+        textstr += f'Best Train MSE: {min(valid_train_mse):.5f}\n'
+        textstr += f'Best Val MSE: {min(valid_val_mse):.5f}'
+        
+        props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+        plt.text(0.02, 0.98, textstr, transform=plt.gca().transAxes, fontsize=9,
+                verticalalignment='top', bbox=props)
+        
+        plt.tight_layout()

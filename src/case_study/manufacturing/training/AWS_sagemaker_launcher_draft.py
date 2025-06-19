@@ -6,10 +6,10 @@ import numpy as np
 from pathlib import Path
 import pandas as pd
 
-def launch_training_job(partition_index, use_tuner=True):
+def launch_training_job(index, use_tuner=True):
 
-    train_data_uri = f's3://gpr-amc-bucket/data/expert{partition_index}/train_data.npz',
-    test_data_uri = f's3://gpr-amc-bucket/data/expert{partition_index}/test_data.npz'
+    train_data_uri = f's3://gpr-amc-bucket/data/partition{index}/train_data.npz',
+    test_data_uri = f's3://gpr-amc-bucket/data/partition{index}/test_data.npz'
     
     # Define the PyTorch estimator
     pytorch_estimator = PyTorch(
@@ -33,11 +33,11 @@ def launch_training_job(partition_index, use_tuner=True):
         'outputscale': ContinuousParameter(0.1, 10.0),
         'se_lengthscale': ContinuousParameter(0.05, 100.0),
         'rq_lengthscale': ContinuousParameter(0.05, 100.0),
-        'rq_alpha': ContinuousParameter(0.05, 5.0),
+        'rq_alpha': ContinuousParameter(0.1, 5.0),
         'per_period_length': ContinuousParameter(6, 10),
         'per_lengthscale': ContinuousParameter(0.05, 100.0),
-        'lin_variance': ContinuousParameter(0.1*0.025, 0.025),
-        'noise_variance': ContinuousParameter(0.025, 0.028),
+        'lin_variance': ContinuousParameter(0.1*0.01, 0.025),
+        'noise_variance': ContinuousParameter(0.01, 0.028),
         'batch_size': IntegerParameter(128, 512),
         'lr': ContinuousParameter(0.001, 0.05)
         }
@@ -58,10 +58,10 @@ def launch_training_job(partition_index, use_tuner=True):
         # Start a single training job
         pytorch_estimator.fit({'train': train_data_uri, 'test': test_data_uri})
         return pytorch_estimator
-    
+
 # Launch training for all partitions in parallel
 def train_all_experts(num_partitions=5, use_tuner=True):
-    """Launch training jobs for all data partitions"""
+    """ Launch training jobs for all data partitions """
     jobs = []
     for i in range(1, num_partitions+1):
     print(f"\nLaunching training for partition {i}...")

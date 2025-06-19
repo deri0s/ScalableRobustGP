@@ -3,11 +3,11 @@ import numpy as np
 from pathlib import Path
 import pandas as pd
 
-def generate_partition(partition_index, bucket_name):
+def generate_partition(index, bucket_name):
     """ Prepare and upload a specific data partition to S3 """
     ROOT_PATH = Path(__file__).resolve().parent.parent
     PROCESSED_PATH = ROOT_PATH / "data" / "processed" / "Training_data_partitions"
-    file = PROCESSED_PATH / f'data{partition_index}.xlsx'
+    file = PROCESSED_PATH / f'data{index}.xlsx'
 
     # Training df
     X_df = pd.read_excel(file, sheet_name='X_stand')
@@ -66,18 +66,16 @@ def generate_partition(partition_index, bucket_name):
     y_test = y[end_train:]
 
     # Save to temporary files
-    # Code for local testing
     np.savez('train_data.npz', X=X_train, y=y_train)
     np.savez('test_data.npz', X=X_test, y=y_test)
-    np.savez('all_data.npz', X=)
 
-    # # Upload to S3
-    # s3_client = boto3.client('s3')
-    # partition_name = f'expert{partition_index}'
-    # s3_client.upload_file('train_data.npz', bucket_name,
-    #                       f'data/{partition_name}/train/train_data.npz')
-    # s3_client.upload_file('test_data.npz', bucket_name,
-    #                       f'data/{partition_name}/test/test_data.npz')
+    # Upload to S3
+    s3_client = boto3.client('s3')
+    partition_name = f'partition{index}'
+    s3_client.upload_file('train_data.npz', bucket_name,
+                          f'data/{partition_name}/train/train_data{index}.npz')
+    s3_client.upload_file('test_data.npz', bucket_name,
+                          f'data/{partition_name}/test/test_data{index}.npz')
 
 # Generate the 5 data partitions
 N_partitions = 5
