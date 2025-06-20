@@ -433,46 +433,39 @@ class GPTraining():
         return mean_squared_error(pred_means, self.y_eval)
 
 
-    def combine_kernels(self, operands_1: dict, operation: str, operands_2: dict) -> dict:
-        """ Creates new kernel factories by combining factories from two dictionaries. """
+    def combine_kernels(self, best_kernel_name: str, best_kernel_factory, remaining_kernels: dict, operation: str) -> dict:
+        """ Creates new kernel factories by combining the best kernel with remaining kernels. """
         new = {}
-        created_keys = set() # Track keys like "(A + B)" to handle commutativity
-
+        
         if operation not in ["+", "*"]:
             raise ValueError("Operation must be '+' or '*'")
-
-        for name1, kernel_factory1 in operands_1.items():
-            for name2, kernel_factory2 in operands_2.items():
-                # treat "RBF + RQ" the same as "RQ + RBF"
-                sorted_names = sorted([name1, name2])
-                if name1 == name2:
-                    continue
-                else:
-                    new_name = f"({sorted_names[0]} {operation} {sorted_names[1]})"
-
-                # Skip if this combination already created (handles commutativity and self-combination)
-                if new_name in created_keys:
-                    continue
-
-                # Use default args in lambda to capture current kernel_factory correctly
-                if operation == "+":
-                     new[new_name] = lambda k1=kernel_factory1, k2=kernel_factory2: k1() + k2()
-                elif operation == "*":
-                     new[new_name] = lambda k1=kernel_factory1, k2=kernel_factory2: k1() * k2()
-
-                created_keys.add(new_name)
+        
+        for name, kernel_factory in remaining_kernels.items():
+            if name == best_kernel_name:
+                continue  # Skip combining with itself
+                
+            # Create combination name (keeping consistent ordering)
+            sorted_names = sorted([best_kernel_name, name])
+            new_name = f"({sorted_names[0]} {operation} {sorted_names[1]})"
+            
+            # Create factory - use default args to capture current factories correctly
+            if operation == "+":
+                new[new_name] = lambda k1=best_kernel_factory, k2=kernel_factory: k1() + k2()
+            elif operation == "*":
+                new[new_name] = lambda k1=best_kernel_factory, k2=kernel_factory: k1() * k2()
+        
         return new
 
     # Modified to accept training params and handle new model/eval
     def get_best_kernel(self, kernels_to_evaluate: dict, lr: float, training_iterations: int, batch_size: int) -> tuple:
-        """ Evaluates a set of kernel structures and returns the best state_dict and error. """
+        """ Evaluates a set of kernel structures and returns the best state_dict, error, and name. """
         best_kernel_state_dict = None
         best_error = float('inf')
         best_name = "None"
 
         if not kernels_to_evaluate:
              print("Warning: No kernels provided to get_best_kernel.")
-             return None, float('inf')
+             return None, float('inf'), "None"
 
         for name, kernel_factory in kernels_to_evaluate.items():
             print(f"\n--- Evaluating Kernel Structure: {name} ---")
@@ -524,56 +517,75 @@ class GPTraining():
 
 
     def auto_model_cons(self, levels, N_sim=100,
-                        param_limits={}, param_stds={}, # Pass limits/stds as dicts
+                        param_limits={}, param_stds={}, 
                         mse_stop=1e-3,
                         lr=0.01, training_iterations=100, batch_size=64):
 
         # --- Validation ---
         if not isinstance(levels, int) or levels <= 0:
-             raise ValueError("Levels must be a positive integer.")
+            raise ValueError("Levels must be a positive integer.")
         if not isinstance(param_limits, dict) or not isinstance(param_stds, dict):
-             raise TypeError("param_limits and param_stds must be dictionaries.")
+            raise TypeError("param_limits and param_stds must be dictionaries.")
 
         # --- Store parameters for child methods ---
         self.N_sim = N_sim
-        self.param_limits = param_limits # Used by grid_search via initialise_params('uniform')
-        self.param_stds = param_stds     # Used by tune via initialise_params('gaussian')
-        self.mse_stop = mse_stop         # Used by grid_search/tune
+        self.param_limits = param_limits
+        self.param_stds = param_stds
+        self.mse_stop = mse_stop
 
         # --- Initialisation ---
         final_best_error = float('inf')
-        final_best_state_dict = None # Store the best state dict found
+        final_best_state_dict = None
         final_best_name = "None"
-
-        # Start with base kernels factories
-        current_level_factories = self.base_kernels
-        all_evaluated_factories = {} # Track factories across levels by name
+        
+        # Track the best kernel from each level for tree search
+        current_best_kernel_name = None
+        current_best_kernel_factory = None
+        all_evaluated_factories = {}  # Track all evaluated factories by name
 
         # --- Main Loop ---
         for level in range(levels):
             print(f"\n{'='*15} Exploring Level {level + 1} Kernels {'='*15}")
 
-            # Combine kernel factories for the next level
-            if level > 0:
-                 sum_kernels = self.combine_kernels(self.base_kernels, "+", all_evaluated_factories)
-                 prod_kernels = {}
-                 if level < 2: # Limit complexity of products
-                     prod_kernels = self.combine_kernels(self.base_kernels, "*", self.base_kernels) # Base * Base
-                     # Optionally: Combine base with previous level bests
-                     # prod_kernels.update(self.combine_kernels(self.base_kernels, "*", all_evaluated_factories))
+            if level == 0:
+                # Level 1: Evaluate base kernels
+                factories_to_evaluate = self.base_kernels.copy()
+                print(f"Level 1 - Evaluating base kernels: {list(factories_to_evaluate.keys())}")
+                
+            else:
+                # Level 2+: Tree search - only combine best from previous level with remaining kernels
+                if current_best_kernel_name is None or current_best_kernel_factory is None:
+                    print("No best kernel found from previous level. Stopping exploration.")
+                    break
+                    
+                print(f"Level {level+1} - Building tree from best kernel: '{current_best_kernel_name}'")
+                
+                # Get remaining kernels (exclude the best one to avoid self-combination)
+                remaining_kernels = {k: v for k, v in self.base_kernels.items() if k != current_best_kernel_name}
+                
+                # Generate combinations: best + remaining and best * remaining
+                sum_kernels = self.combine_kernels(
+                    current_best_kernel_name, current_best_kernel_factory, 
+                    remaining_kernels, "+"
+                )
+                
+                prod_kernels = self.combine_kernels(
+                    current_best_kernel_name, current_best_kernel_factory, 
+                    remaining_kernels, "*"
+                )
+                
+                factories_to_evaluate = {}
+                factories_to_evaluate.update(sum_kernels)
+                factories_to_evaluate.update(prod_kernels)
+                
+                print(f"Level {level+1} - Kernels to evaluate: {list(factories_to_evaluate.keys())}")
 
-                 current_level_factories = sum_kernels
-                 current_level_factories.update(prod_kernels)
-
-            # Identify only new kernel structures to evaluate this level
-            factories_to_evaluate = {k: v for k, v in current_level_factories.items() if k not in all_evaluated_factories}
-            print(f"Kernels to evaluate at Level {level+1}: {list(factories_to_evaluate.keys())}")
-
+            # Skip if no new kernels to evaluate
             if not factories_to_evaluate:
                 print("No new kernel structures to evaluate at this level.")
                 continue
 
-            # Get current level's best kernel (returns state_dict, error) by evaluating the new factories
+            # Evaluate current level's kernels
             best_state_dict, error_level, best_name = self.get_best_kernel(
                 factories_to_evaluate,
                 lr=lr,
@@ -581,20 +593,30 @@ class GPTraining():
                 batch_size=batch_size
             )
 
-            # Add the factories evaluated in this level to the master dictionary
+            # Add evaluated factories to master dictionary
             all_evaluated_factories.update(factories_to_evaluate)
 
+            # Update overall best if improvement found
             if error_level < final_best_error:
                 final_best_error = error_level
                 final_best_state_dict = best_state_dict
                 final_best_name = best_name
                 print(f'*** New Overall Best Found! Error: {final_best_error:.5f} ***')
 
+            # Update current best for next level's tree search
+            if best_name != "None" and best_name in factories_to_evaluate:
+                current_best_kernel_name = best_name
+                current_best_kernel_factory = factories_to_evaluate[best_name]
+                print(f"Best kernel for Level {level+1}: '{current_best_kernel_name}' (Error: {error_level:.5f})")
+            else:
+                print(f"Warning: Could not update best kernel for next level. Best name: '{best_name}'")
+                # Continue with previous best if current level failed
+
         # --- Finish ---
         print(f"\n{'='*15} Auto Model Construction Finished {'='*15}")
         if final_best_state_dict is None or final_best_name == "None":
-             print("No successful model evaluation completed or best kernel name not found.")
-             return None
+            print("No successful model evaluation completed or best kernel name not found.")
+            return None
 
         print(f"Overall Best Kernel: '{final_best_name}'")
         print(f"Overall Best Error Found: {final_best_error:.5f}")
@@ -604,7 +626,7 @@ class GPTraining():
             print(f"Reconstructing final model with kernel: {final_best_name}")
             # Retrieve the winning factory
             if final_best_name not in all_evaluated_factories:
-                 raise KeyError(f"Winning kernel name '{final_best_name}' not found in evaluated factories.")
+                raise KeyError(f"Winning kernel name '{final_best_name}' not found in evaluated factories.")
             winning_factory = all_evaluated_factories[final_best_name]
 
             # Create the winning kernel structure (assuming ScaleKernel wrap)
@@ -613,16 +635,16 @@ class GPTraining():
             # Create the final model instance by copying gp0 and replacing the kernel
             final_best_gp = copy.deepcopy(self.gp0)
             final_best_gp.covar_module = winning_kernel.to(self.dtype)
-            final_best_gp.to(self.dtype) # Ensure the model is correct dtype
+            final_best_gp.to(self.dtype)
 
             # Load the state dict into the correctly structured model
             final_best_gp.load_state_dict(final_best_state_dict, strict=True)
 
         except Exception as e:
-             print(f"Error reconstructing or loading final best model: {e}")
-             traceback.print_exc() # Print detailed traceback for debugging
-             print("Returning the initial model structure instead.")
-             return copy.deepcopy(self.gp0)
+            print(f"Error reconstructing or loading final best model: {e}")
+            traceback.print_exc()
+            print("Returning the initial model structure instead.")
+            return copy.deepcopy(self.gp0)
 
         return final_best_gp
 

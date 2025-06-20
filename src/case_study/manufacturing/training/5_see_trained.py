@@ -5,7 +5,6 @@ import pandas as pd
 from matplotlib import pyplot as plt
 from pathlib import Path
 from gpytorch.likelihoods import GaussianLikelihood
-from gpytorch.distributions import MultivariateNormal
 
 """
 NSG data
@@ -19,29 +18,19 @@ PROCESSED_PATH = ROOT_PATH / "data" / "processed" / "Training_data_partitions"
 EXPERT_PATH = ROOT_PATH / "trained" / "experts"
 
 apply_timelags = True
-
 N_partitions = 1
-for index in range(N_partitions):
-    file = PROCESSED_PATH / f'data{index}.xlsx'
 
-    # Training df
-    X_df = pd.read_excel(file, sheet_name='X_stand')
-    y_df = pd.read_excel(file, sheet_name='y_nonstand')
-    t_df = pd.read_excel(file, sheet_name='timelags')
-    t_series = t_df.iloc[0, :]
+def align_inputs(x_df, y_df, t_series):
+    xdeep = x_df.copy()
+    ydeep = y_df.copy()
+    # Ensure t_series values are numeric before finding max
+    numeric_t_series = pd.to_numeric(t_series, errors='coerce').fillna(0)
+    if numeric_t_series.empty:
+         max_lag = 0
+    else:
+         max_lag = int(max(numeric_t_series))
 
-    if apply_timelags:
-        """ 1. Align inputs and variables according to their time lags """
-        xdeep = X_df.copy()
-        ydeep = y_df.copy()
-        # Ensure t_series values are numeric before finding max
-        numeric_t_series = pd.to_numeric(t_series, errors='coerce').fillna(0)
-        if numeric_t_series.empty:
-            max_lag = 0
-        else:
-            max_lag = int(max(numeric_t_series))
-
-            # X
+    # X
     for name, lag in t_series.items():
         # Ensure lag is treated as integer for shift
         try:
@@ -54,21 +43,41 @@ for index in range(N_partitions):
     # Drop rows with NaNs introduced by shifting (only drop up to max_lag rows from top)
     xdeep = xdeep.iloc[max_lag:] # More direct way to handle shift NaNs
 
+    # y and date-time alignment
+    # Ensure ydeep has enough rows before slicing
+    if len(ydeep) >= max_lag:
+        ydeep = ydeep.iloc[max_lag:].reset_index(drop=True)
+    else:
+        # Handle case where ydeep is shorter than max_lag (e.g., return empty DataFrames)
+        print(f"Warning: y DataFrame length ({len(ydeep)}) is less than max_lag ({max_lag}). Alignment might be incorrect.")
+        return pd.DataFrame(columns=x_df.columns), pd.DataFrame(columns=y_df.columns)
+
     # Ensure xdeep and ydeep have the same length after alignment
     common_len = min(len(xdeep), len(ydeep))
     xdeep = xdeep.iloc[:common_len].reset_index(drop=True)
     ydeep = ydeep.iloc[:common_len].reset_index(drop=True)
 
-    # rename X and y dataframes
-    X_np = xdeep.values
+    return xdeep, ydeep
 
+
+for index in range(N_partitions):
+    file = PROCESSED_PATH / f'data{index}.xlsx'
+
+    # Training df
+    X_df = pd.read_excel(file, sheet_name='X_stand')
+    y_df = pd.read_excel(file, sheet_name='y_nonstand')
+    t_df = pd.read_excel(file, sheet_name='timelags')
+    t_series = t_df.iloc[0, :]
+
+    X_df, y_df = align_inputs(X_df, y_df, t_df.iloc[0,:])
+
+    X_np = X_df.values
+    y_processed = y_df.y_processed.values
+    date_time = y_df.date_time.values
+
+    # Convert data to torch tensors
     floating_point = torch.float64
     X = torch.tensor(X_np, dtype=floating_point)
-
-    # Pre-Process training data
-    y_train = ydeep.y_processed.values
-    y_filtered = ydeep.y_filtered.values
-    date_time = ydeep.date_time.values
 
     """ 2. Load trained experts """
 
@@ -107,7 +116,7 @@ for index in range(N_partitions):
     plt.rc('ytick', labelsize=14)
     fig.autofmt_xdate()
 
-    ax.plot(date_time, y_train, color='grey', label='Raw')
+    ax.plot(date_time, y_processed, '*', color='green', label='Val')
     # ax.plot(date_time, y_filtered, color='blue', label='Filtered')
     # ax.plot(date_time[i_clean], y_clean, 'o', color='green', label='furnace')
     ax.plot(date_time, mu, color='red', label='GP')

@@ -19,7 +19,7 @@ from gpytorch.kernels import RBFKernel as RBF, RQKernel as RQ, PeriodicKernel as
 from gpytorch.constraints import GreaterThan # For noise constraint
 import traceback # For detailed error printing
 # Automatic Model Construction
-from models.svgp_auto_model_construction import GPTraining, SVGP
+from models.svgp_auto_model_construction2 import GPTraining, SVGP
 
 """
 NSG data
@@ -180,34 +180,15 @@ limits = {
 }
 
 # Automatic Model Construction: Grid search parameters - Updated for level=3
-try:
-    gp_gs = auto_trainer.auto_model_cons(
-        levels=1,
-        N_sim=2,
-        param_limits=limits,
-        mse_stop=0.040,
-        lr=0.01,
-        training_iterations=80,
-        batch_size=512)
-    print("✓ Automatic Model Construction completed successfully")
-except Exception as e:
-    print(f"❌ Error during Automatic Model Construction: {e}")
-    print("Using initial kernel")
-    traceback.print_exc()
-    # Fallback to level=2 if level=3 fails
-    try:
-        gp_gs = auto_trainer.auto_model_cons(
-            levels=1,
-            N_sim=2,
-            param_limits=limits,
-            mse_stop=0.055,
-            lr=0.01,
-            training_iterations=50,
-            batch_size=256)
-    except Exception as e2:
-        print(f"❌ Fallback also failed: {e2}")
-        gp_gs = gp0  # Use original model if all fails
-        print("Using original model (gp0)")
+gp_gs = auto_trainer.auto_model_cons(
+    levels=2,
+    N_sim=2,
+    param_limits=limits,
+    mse_stop=0.040,
+    lr=0.01,
+    training_iterations=80,
+    batch_size=512)
+print("✓ Automatic Model Construction completed successfully")
 
 gp_gs.eval()
 gp_gs.likelihood.eval()
@@ -294,7 +275,7 @@ if gp_gs is not gp0: # Only tune if we have a model to tune
         print(f"\n🔧 Starting hyperparameter tuning")
         tuned_gp = auto_trainer.tune(
             gp_to_tune=gp_gs,
-            N_sim=2,
+            N_sim=3,
             mse_stop=0.003,
             lr=0.005,
             training_iterations=70,
