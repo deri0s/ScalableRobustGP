@@ -19,7 +19,7 @@ from gpytorch.kernels import RBFKernel as RBF, RQKernel as RQ, PeriodicKernel as
 from gpytorch.constraints import GreaterThan # For noise constraint
 import traceback # For detailed error printing
 # Automatic Model Construction
-from models.svgp_auto_model_construction2 import GPTraining, SVGP
+from models.svgp_auto_model_construction import GPTraining, SVGP
 
 """
 NSG data
@@ -182,7 +182,7 @@ limits = {
 # Automatic Model Construction: Grid search parameters - Updated for level=3
 gp_gs = auto_trainer.auto_model_cons(
     levels=2,
-    N_sim=2,
+    N_sim=10,
     param_limits=limits,
     mse_stop=0.040,
     lr=0.01,

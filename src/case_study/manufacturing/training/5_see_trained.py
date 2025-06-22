@@ -18,7 +18,7 @@ PROCESSED_PATH = ROOT_PATH / "data" / "processed" / "Training_data_partitions"
 EXPERT_PATH = ROOT_PATH / "trained" / "experts"
 
 apply_timelags = True
-N_partitions = 1
+N_partitions = 5
 
 def align_inputs(x_df, y_df, t_series):
     xdeep = x_df.copy()
@@ -107,7 +107,7 @@ for index in range(N_partitions):
     #-----------------------------------------------------------------------------
     # PLOT TRAINING DATA
     #-----------------------------------------------------------------------------
-
+    end_indx = int(len(X)*0.8)
     fig, ax = plt.subplots()
 
     # Increase the size of the axis numbers
@@ -116,13 +116,14 @@ for index in range(N_partitions):
     plt.rc('ytick', labelsize=14)
     fig.autofmt_xdate()
 
+    plt.title(f'Expert {index}')
     ax.plot(date_time, y_processed, '*', color='green', label='Val')
     # ax.plot(date_time, y_filtered, color='blue', label='Filtered')
     # ax.plot(date_time[i_clean], y_clean, 'o', color='green', label='furnace')
     ax.plot(date_time, mu, color='red', label='GP')
-    # ax.vlines(x=date_time[end_indx], ymin=-2, ymax=max(y_train),
-    #         colors='black', ls='--', label='Test-data')
-    # ax.set_xlabel(" Date-time", fontsize=14)
+    ax.vlines(x=date_time[end_indx], ymin=0, ymax=max(y_processed),
+            colors='black', ls='--', label='Test-data')
+    ax.set_xlabel(" Date-time", fontsize=14)
     ax.set_ylabel(" Fault density", fontsize=14)
     plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
 
