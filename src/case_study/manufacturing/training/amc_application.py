@@ -181,8 +181,8 @@ limits = {
 
 # Automatic Model Construction: Grid search parameters - Updated for level=3
 gp_gs = auto_trainer.auto_model_cons(
-    levels=2,
-    N_sim=10,
+    levels=1,
+    N_sim=2,
     param_limits=limits,
     mse_stop=0.040,
     lr=0.01,
