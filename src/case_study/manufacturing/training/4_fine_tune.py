@@ -9,6 +9,9 @@ from matplotlib import pyplot as plt
 from pathlib import Path
 from gpytorch.likelihoods import GaussianLikelihood
 from models.svgp_auto_model_construction import GPTraining
+import models.svgp_auto_model_construction
+print("Executing module from file:")
+print(models.svgp_auto_model_construction.__file__)
 
 """
 NSG data
@@ -156,7 +159,7 @@ likelihood = likelihood.double()
 y_train = torch.tensor(y_stand_np, dtype=floating_point).squeeze()
 y_test = torch.tensor(y_test_stand, dtype=floating_point).squeeze()
 
-auto_trainer = GPTraining(gp0=gp0, X_train=X_train, y_train=y_train,
+auto_trainer = GPTraining(gp0, X_train, y_train,
                           X_eval=X_test, y_eval=y_test)
 
 def generate_stds(lengthscales, base_std_dev):
@@ -182,7 +185,7 @@ try:
     else:
         lengthscales = gp0.covar_module.base_kernel.kernels[0].lengthscale.squeeze()
     
-    ls_stds = generate_stds(lengthscales, base_std_dev=1e-4)
+    ls_stds = generate_stds(lengthscales, base_std_dev=1e-1)
 except Exception as e:
     print(f"Warning: Could not extract lengthscales for tuning: {e}")
     ls_stds = [1e-4] * D
@@ -191,7 +194,7 @@ stds = {'outputscale': 1e-4,
         'se_lengthscale': ls_stds,
         'rq_lengthscale': ls_stds,
         # 'per_lengthscale': ls_stds,
-        # 'rq_alpha': 1e-2,
+        'rq_alpha': 1e-2,
         # 'lin_variance': 1e-3,
         'noise_variance': 1e-2}
 
@@ -201,7 +204,7 @@ auto_trainer.param_stds = stds
 print(f"\n🔧 Starting hyperparameter tuning")
 tuned_gp = auto_trainer.tune(
     gp_to_tune=gp0,
-    N_sim=100,
+    N_sim=50,
     mse_stop=0.001,
     lr=0.005,
     training_iterations=200,
@@ -213,7 +216,7 @@ tuned_gp.eval()
 tuned_gp.likelihood.eval()
 
 with torch.no_grad(), gpytorch.settings.fast_pred_var():
-    observed_pred_tuned = tuned_gp.likelihood(tuned_gp(X_all))
+    observed_pred_tuned = tuned_gp.likelihood(tuned_gp(X))
 
 # Unormalise predictions
 pred_mean_tuned = observed_pred_tuned.mean

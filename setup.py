@@ -8,6 +8,6 @@ setup(
     author_email="derios8@outlook.com",
     url="https://github.com/deri0s/ScalableRobustGP",
     packages=find_packages(where="src"),
-    package_dir={"": "src"},  # Tell setuptools to look in `src` for packages
+    package_dir={"": "src"},
     python_requires='>=3.9',  # Specify the Python versions you support
 )
