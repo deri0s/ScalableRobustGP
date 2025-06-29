@@ -2,6 +2,7 @@ import torch
 import copy
 import gpytorch
 import numpy as np
+from scipy.stats import qmc
 from numpy.random import uniform
 import random
 from sklearn.metrics import mean_squared_error
@@ -706,7 +707,7 @@ class GPTraining():
         return best_state_dict, mse_list
 
     def tune(self, gp_to_tune: ApproximateGP, N_sim, mse_stop=1e-3,
-            lr=0.01, training_iterations=100, batch_size=64, plot_mse=True):
+            lr=0.01, training_iterations=100, batch_size=256, plot_mse=True):
         """ Fine-tunes a GP by sampling params from Gaussian distribution """
 
         # Validation of stds happens during initialise_params
@@ -718,10 +719,18 @@ class GPTraining():
         # initialise MSE
         gp_to_tune.eval()
         gp_to_tune.likelihood.eval()
-        with torch.no_grad(), gpytorch.settings.fast_pred_var():
-            observed_pred = gp_to_tune.likelihood(gp_to_tune(self.X_eval))
-        
-        best_mse = mean_squared_error(observed_pred.mean, self.y_eval)
+
+        # on eval data 
+        # with torch.no_grad(), gpytorch.settings.fast_pred_var():
+        #     observed_pred = gp_to_tune.likelihood(gp_to_tune(self.X_eval))
+        best_mse = float('inf')
+        # best_mse = mean_squared_error(observed_pred.mean, self.y_eval)
+
+        # on training data
+        # with torch.no_grad(), gpytorch.settings.fast_pred_var():
+        #     observed_pred = gp_to_tune.likelihood(gp_to_tune(self.X_train))
+        bt_mse = float('inf')
+        # bt_mse= mean_squared_error(observed_pred.mean, self.y_train)
 
         try:
             self.initialise_params(gp_to_tune, 'center')
@@ -763,9 +772,11 @@ class GPTraining():
                 print(f'Tune Sim {i+1}/{N_sim} | Train MSE: {training_mse:.5f} | Val MSE: {validation_mse:.5f} | Current Best: {best_mse:.5f}')
 
                 # Update best model if improvement
-                if validation_mse < best_mse:
+                if training_mse < bt_mse and validation_mse < best_mse:
+                # if validation_mse < best_mse:
                     print(f"\nFound better parameters during tuning! Val MSE: {validation_mse:.5f} < {best_mse:.5f}\n")
                     best_mse = validation_mse
+                    bt_mse = training_mse
                     best_gp = copy.deepcopy(current_sim_gp) # Keep the whole model
                     # Option: Re-center Gaussian around the new best? (Can sometimes lock in too early)
                     # self.initialise_params(best_gp, 'center')

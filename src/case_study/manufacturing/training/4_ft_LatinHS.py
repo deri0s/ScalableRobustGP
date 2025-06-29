@@ -1,17 +1,20 @@
 import os
 import torch
 import gpytorch
+import copy
 import numpy as np
 import pandas as pd
+from scipy.stats import qmc
 from sklearn.metrics import mean_squared_error
 from sklearn.preprocessing import StandardScaler as ss
 from matplotlib import pyplot as plt
 from pathlib import Path
+from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.mlls import VariationalELBO
-from models.svgp_auto_model_construction import GPTraining
-import models.svgp_auto_model_construction
-print("Executing module from file:")
-print(models.svgp_auto_model_construction.__file__)
+from gpytorch.variational import CholeskyVariationalDistribution, VariationalStrategy
+from gpytorch.kernels import ScaleKernel, Kernel
+from gpytorch.kernels import RBFKernel as RBF, RQKernel as RQ
+from gpytorch.kernels import LinearKernel as Lin, PeriodicKernel as Per
 
 """
 NSG data
@@ -26,6 +29,7 @@ EXPERT_PATH = ROOT_PATH / "trained" / "experts"
 
 apply_timelags = True
 N_partitions = 5
+N_sim = 100
 
 def align_inputs(x_df, y_df, t_series):
     xdeep = x_df.copy()
@@ -95,7 +99,7 @@ scaler_path = os.path.join(EXPERT_PATH, f'scaler{index}.pth')
 gp0 = torch.load(expert_path)
 scaler = torch.load(scaler_path)
 
-likelihood = VariationalELBO()
+likelihood = GaussianLikelihood()
 
 # Predictions
 gp0.eval()
@@ -107,18 +111,11 @@ with torch.no_grad(), gpytorch.settings.fast_pred_var():
     pred_mean = observed_pred.mean
     mu0 = scaler.inverse_transform(pred_mean.unsqueeze(1))[:,0]
 
-# Print initial kernel parameters
-if hasattr(gp0.covar_module.base_kernel, 'lengthscale'):
-    level = 1
-    outputscale = gp0.covar_module.outputscale.item()
-    rq_ls = gp0.covar_module.base_kernel.kernels[0].lengthscale.squeeze()
-    se_ls = gp0.covar_module.base_kernel.kernels[1].lengthscale.squeeze()
-    noise_var = likelihood.noise.item()
-    # lengthscales = gp0.covar_module.base_kernel.lengthscale.squeeze()
-else:
-    level = 2
-    gp0.covar_module.base_kernel.base_kernel.outputscale.item()
-    # lengthscales = gp0.covar_module.base_kernel.kernels[0].lengthscale.squeeze()
+level = 2
+outputscale = gp0.covar_module.outputscale.item()
+rq_ls = gp0.covar_module.base_kernel.kernels[0].lengthscale.squeeze()
+se_ls = gp0.covar_module.base_kernel.kernels[1].lengthscale.squeeze()
+noise_var = likelihood.noise.item()
 
 print("\nAWS kernel estimation:")
 print('Kernel:\n', gp0.covar_module)
@@ -159,64 +156,12 @@ likelihood = likelihood.double()
 y_train = torch.tensor(y_stand_np, dtype=floating_point).squeeze()
 y_test = torch.tensor(y_test_stand, dtype=floating_point).squeeze()
 
-auto_trainer = GPTraining(gp0, X_train, y_train,
-                          X_eval=X_test, y_eval=y_test)
-
-def generate_stds(lengthscales, base_std_dev):
-    """ Penalise lengthscales that are high using a greater std """
-    if not torch.is_tensor(lengthscales):
-        lengthscales = torch.tensor(lengthscales)
-
-    # Handle both scalar and ARD cases
-    if lengthscales.numel() == 1:
-        # Scalar lengthscale case
-        return base_std_dev
-    else:
-        # ARD case - return list with correct length
-        min_lengthscale = torch.min(lengthscales)
-        std_devs = base_std_dev * torch.exp((lengthscales - min_lengthscale)/6)
-        std_devs = torch.tensor([300 if std == torch.inf else std for std in std_devs])
-        return std_devs.tolist()
-
-# Account for ARD
-try:
-    if hasattr(gp0.covar_module.base_kernel, 'lengthscale'):
-        lengthscales = gp0.covar_module.base_kernel.lengthscale.squeeze()
-    else:
-        lengthscales = gp0.covar_module.base_kernel.kernels[0].lengthscale.squeeze()
-    
-    ls_stds = generate_stds(lengthscales, base_std_dev=1e-1)
-except Exception as e:
-    print(f"Warning: Could not extract lengthscales for tuning: {e}")
-    ls_stds = [1e-4] * D
-
-stds = {'outputscale': 1e-4,
-        'se_lengthscale': ls_stds,
-        'rq_lengthscale': ls_stds,
-        # 'per_lengthscale': ls_stds,
-        'rq_alpha': 1e-2,
-        # 'lin_variance': 1e-3,
-        'noise_variance': 1e-2}
-
-# Update the trainer's stds dictionary
-auto_trainer.param_stds = stds
-
-print(f"\n🔧 Starting hyperparameter tuning")
-tuned_gp = auto_trainer.tune(
-    gp_to_tune=gp0,
-    N_sim=50,
-    mse_stop=0.001,
-    lr=0.005,
-    training_iterations=200,
-    batch_size=256)
-print("✓ Hyperparameter tuning completed successfully")
-
-# Make predictions with tuned model
-tuned_gp.eval()
-tuned_gp.likelihood.eval()
+# Make predictions with the original GP
+gp0.eval()
+gp0.likelihood.eval()
 
 with torch.no_grad(), gpytorch.settings.fast_pred_var():
-    observed_pred_tuned = tuned_gp.likelihood(tuned_gp(X))
+    observed_pred_tuned = gp0.likelihood(gp0(X))
 
 # Unormalise predictions
 pred_mean_tuned = observed_pred_tuned.mean
@@ -227,10 +172,87 @@ lower_tuned = scaler.inverse_transform(lower_stand_tuned.unsqueeze(1))[:,0]
 upper_tuned = scaler.inverse_transform(upper_stand_tuned.unsqueeze(1))[:,0]
 
 mse0 = mean_squared_error(mu0, y_processed)
-mse_tuning = mean_squared_error(mu_tuned, y_processed)
 
-print(f'MSE-AWS: {mse0:.6f}')
-print(f'MSE-tuned: {mse_tuning:.6f}')
+def get_samples(D, N_sim, l_bounds, u_bounds):
+    """ Samples from a Latin Hypercube Sampling model """
+    sampler = qmc.LatinHypercube(d=D)
+    sample = sampler.random(n=N_sim)
+    
+    if len(l_bounds) != D or len(u_bounds) != D:
+        raise ValueError(f"Bounds dimensions ({len(l_bounds)}, {len(u_bounds)}) must match sample dimension ({D})")
+    
+    return qmc.scale(sample, l_bounds, u_bounds)
+
+# Get the actual lengthscale dimensions from the kernels
+rq_dim = gp0.covar_module.base_kernel.kernels[0].lengthscale.shape[-1]
+se_dim = gp0.covar_module.base_kernel.kernels[1].lengthscale.shape[-1]
+
+# Update dimension calculation
+dim = rq_dim + se_dim + 2  # +2 for outputscale and noise
+
+# Update bounds accordingly
+lowerb = 1 * np.ones(dim)
+upperb = 100 * np.ones(dim)
+
+# Edit the outputscale bounds
+lowerb[0] = 1
+upperb[0] = 10
+# Edit the noise variance bounds
+lowerb[-1] = 0.001
+upperb[-1] = 0.003
+
+# Generate samples with correct dimension
+samples = get_samples(dim, N_sim, lowerb, upperb)
+
+gp = copy.deepcopy(gp0)
+best_mse = float('inf')
+
+# Start Hyperparameter tunning
+for n in range(N_sim):
+    # 1. Copy the base model and assign sampled hyperparameters
+    gp = copy.deepcopy(gp0)
+    gp.covar_module.outputscale = samples[n, 0]
+    gp.covar_module.base_kernel.kernels[0].lengthscale = torch.tensor(samples[n, 1:1+rq_dim], dtype=floating_point)
+    gp.covar_module.base_kernel.kernels[1].lengthscale = torch.tensor(samples[n, 1+rq_dim:1+rq_dim+se_dim], dtype=floating_point)
+    likelihood.noise = samples[n, -1]
+
+    gp.train()
+    likelihood.train()
+
+    # 2. Set up optimizer (include inducing points if you want to optimize them)
+    optimizer = torch.optim.Adam([
+        {'params': gp.parameters()},
+        {'params': likelihood.parameters()},
+    ], lr=0.01)
+
+    # 3. Use the VariationalELBO loss
+    mll = gpytorch.mlls.VariationalELBO(likelihood, gp, num_data=X_train.size(0))
+
+    # 4. Training loop
+    training_iter = 50  # Adjust as needed
+    for i in range(training_iter):
+        optimizer.zero_grad()
+        output = gp(X_train)
+        loss = -mll(output, y_train)
+        loss.backward()
+        optimizer.step()
+
+    # 5. Evaluate on full data (or test set)
+    gp.eval()
+    likelihood.eval()
+    with torch.no_grad(), gpytorch.settings.fast_pred_var():
+        observed_pred_tuned = likelihood(gp(X))
+        pred_mean_tuned = observed_pred_tuned.mean
+        mu_tuned = scaler.inverse_transform(pred_mean_tuned.unsqueeze(1))[:, 0]
+        mse = mean_squared_error(mu_tuned, y_processed)
+
+    if mse < best_mse:
+        best_mse = mse
+        best_gp = copy.deepcopy(gp)
+        best_mu = mu_tuned
+        print(f'Sim: {n}, Best MSE found: {mse:.6f}')
+
+    print(f'Sim: {n}, MSE-tuned: {mse:.6f}')
 
 
 #-----------------------------------------------------------------------------
@@ -250,7 +272,7 @@ ax.plot(date_time, y_processed, '*', color='green', label='Val')
 # ax.plot(date_time, y_filtered, color='blue', label='Filtered')
 # ax.plot(date_time[i_clean], y_clean, 'o', color='green', label='furnace')
 ax.plot(date_time, mu0, color='blue', label='GP-AWS')
-ax.plot(date_time, mu_tuned, color='red', label='GP-Tuned')
+ax.plot(date_time, best_mu, color='red', label='GP-Tuned')
 ax.vlines(x=date_time[end_indx], ymin=0, ymax=max(y_processed),
         colors='black', ls='--', label='Test-data')
 ax.set_xlabel(" Date-time", fontsize=14)
