@@ -85,10 +85,12 @@ for index in range(N_partitions):
     scaler_path = os.path.join(EXPERT_PATH, f'scaler{index}.pth')
         
     # Load train expert
-    gp = torch.load(expert_path)
+    gp = torch.load(expert_path, weights_only=False)
     scaler = torch.load(scaler_path)
 
     likelihood = GaussianLikelihood()
+
+    print(f'\nEstimated Kerne:\n {gp.covar_module.base_kernel}')
 
     # Predictions
     gp.eval()
