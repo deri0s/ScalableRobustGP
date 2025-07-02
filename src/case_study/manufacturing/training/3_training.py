@@ -11,16 +11,13 @@ from matplotlib import pyplot as plt
 from pathlib import Path
 from sklearn.cluster import KMeans
 from gpytorch.likelihoods import GaussianLikelihood
-from gpytorch.mlls import VariationalELBO
 from gpytorch.constraints import GreaterThan # For noise constraint
-from gpytorch.kernels import ScaleKernel, Kernel
+from gpytorch.kernels import ScaleKernel
 from gpytorch.kernels import RBFKernel as RBF, RQKernel as RQ
 from models.svgp_auto_model_construction import SVGP
 
 """
-NSG data
-
-Do not adjust data for timelags.
+User inputs
 """
 
 # NSG post processes data location
@@ -33,6 +30,9 @@ N_partitions = 5
 M = 42
 N_sim = 200
 kernel = 'RBF'
+
+
+""" 1. Apply the corresponding timelags """
 
 def align_inputs(x_df, y_df, t_series):
     xdeep = x_df.copy()
@@ -94,7 +94,7 @@ X = torch.tensor(X_np, dtype=floating_point)
 N, D = np.shape(X)
 
 
-""" 3. Standardise outputs """
+""" 2. Standardise outputs """
 
 eval_perc = 0.2
 end_train = N - int(N*eval_perc)
@@ -225,10 +225,6 @@ for n in range(N_sim):
     likelihood.train()
 
     optimizer = torch.optim.Adam(gp.parameters(), lr=0.01)
-    # optimizer = torch.optim.Adam([
-    #     {'params': gp.parameters()},
-    #     {'params': likelihood.parameters()},
-    # ], lr=0.01)
 
     # 3. Use the VariationalELBO loss
     mll = gpytorch.mlls.VariationalELBO(likelihood, gp, num_data=X_train.size(0))
@@ -289,8 +285,6 @@ fig.autofmt_xdate()
 plt.title(f'Expert {index}')
 ax.plot(date_time, y_processed, '*', color='green', label='Val')
 # ax.plot(date_time, y_filtered, color='blue', label='Filtered')
-# ax.plot(date_time[i_clean], y_clean, 'o', color='green', label='furnace')
-# ax.plot(date_time, mu0, color='blue', label='GP-AWS')
 ax.plot(date_time, best_mu, color='red', label='GP-Tuned')
 ax.vlines(x=date_time[end_indx], ymin=0, ymax=max(y_processed),
         colors='black', ls='--', label='Test-data')
