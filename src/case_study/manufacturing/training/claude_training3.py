@@ -22,17 +22,17 @@ Enhanced User Configuration
 
 # Enhanced configuration
 data_index = 0
-M = 100
-N_sim = 300
-kernel = 'RQ'  # Options: 'RBF', 'RQ', 'Matern52', 'RBF+Linear', 'RBF+RQ'
+M = 110
+N_sim = 100
+kernel = 'RBF'  # Options: 'RBF', 'RQ', 'Matern52', 'RBF+Linear', 'RBF+RQ'
 use_log_space = True
 use_early_stopping = True
-training_iter = 300  # Increased iterations
+training_iter = 200  # Increased iterations
 learning_rate = 0.005  # Reduced for stability
 
 # Target-based early stopping parameters
-mse_training_target = 0.005
-mse_test_target = 0.003
+mse_training_target = 0.008
+mse_test_target = 0.01
 use_target_early_stopping = True  # Set to False to disable target-based early stopping
 
 # NSG post processes data location
@@ -89,10 +89,19 @@ y_df = pd.read_excel(file, sheet_name='y_nonstand')
 t_df = pd.read_excel(file, sheet_name='timelags')
 t_series = t_df.iloc[0, :]
 
+# Feature selection
+X_df.drop(columns=['9282 Tweel Position'], inplace=True)
+t_df.drop(columns=['9282 Tweel Position'], inplace=True)
+X_df.drop(columns=['10091 Furnace Load'], inplace=True)
+t_df.drop(columns=['10091 Furnace Load'], inplace=True)
+X_df.drop(columns=['7746 Open Crown Temperature - Port 2 (PV)'], inplace=True)
+t_df.drop(columns=['7746 Open Crown Temperature - Port 2 (PV)'], inplace=True)
+
 X_df, y_df = align_inputs(X_df, y_df, t_df.iloc[0,:])
 
 X_np = X_df.values
 y_processed = y_df.y_processed.values
+y_raw = y_df.y_raw.values
 date_time = y_df.date_time.values
 
 # Convert data to torch tensors
@@ -149,7 +158,7 @@ def create_kernel(kernel_type, D, dtype):
     else:
         raise ValueError(f"Unsupported kernel type: {kernel_type}")
 
-def get_hyper(gp, kernel_type):
+def get_hyper(gp):
     """Extract hyperparameters based on kernel type"""
     results = {}
     
@@ -189,37 +198,31 @@ def setup_hyperparameter_space(kernel_type, D, use_log_space=True):
         raise ValueError(f'Unsupported kernel type: {kernel_type}')
     
     if use_log_space:
-        # More aggressive exploration in log space
-        lowerb = np.full(dim, np.log(1))  # Very small lengthscales
-        upperb = np.full(dim, np.log(1000))  # Very large lengthscales
+        # Log space
+        lowerb = np.full(dim, np.log(10))  # Very small lengthscales
+        upperb = np.full(dim, np.log(500))  # Very large lengthscales
+        # Noise is always positioned at index=-1
+        lowerb[-1] = np.log(0.0005)
+        upperb[-1] = np.log(0.001)
         
         # Adjust specific parameter bounds
         if kernel_type in ['RBF', 'Matern52']:
             # outputscale bounds
             lowerb[-2] = np.log(0.5)
-            upperb[-2] = np.log(50) 
-            # noise bounds - much tighter
-            lowerb[-1] = np.log(0.0001)
-            upperb[-1] = np.log(0.001)  # Much lower max noise
+            upperb[-2] = np.log(50)
             
         elif kernel_type == 'RQ':
             # outputscale bounds
             lowerb[-3] = np.log(0.5)
             upperb[-3] = np.log(50)
             # alpha bounds (keep linear)
-            lowerb[-2] = 1
+            lowerb[-2] = 5
             upperb[-2] = 10.0
-            # noise bounds
-            lowerb[-1] = np.log(0.0001)
-            upperb[-1] = np.log(0.001)
             
         elif 'RBF+Linear' in kernel_type:
             # Two outputscales
             lowerb[-3:-1] = np.log(0.5)
             upperb[-3:-1] = np.log(50)
-            # noise
-            lowerb[-1] = np.log(0.0001) 
-            upperb[-1] = np.log(0.001)
             
         elif 'RBF+RQ' in kernel_type:
             # Two outputscales + alpha
@@ -227,10 +230,8 @@ def setup_hyperparameter_space(kernel_type, D, use_log_space=True):
             upperb[-4] = np.log(50)
             lowerb[-3] = np.log(0.5)  # RQ outputscale  
             upperb[-3] = np.log(50)
-            lowerb[-2] = 0.1          # RQ alpha (linear)
+            lowerb[-2] = 2          # RQ alpha (linear)
             upperb[-2] = 10.0
-            lowerb[-1] = np.log(0.0001) # noise
-            upperb[-1] = np.log(0.01)
     else:
         # Linear space bounds (conservative)
         lowerb = 0.1 * np.ones(dim)
@@ -389,7 +390,7 @@ for n in range(N_sim):
     # Training with early stopping
     prev_loss = float('inf')
     patience_counter = 0
-    patience = 50
+    patience = 30
     
     for i in range(training_iter):
         optimizer.zero_grad()
@@ -415,8 +416,10 @@ for n in range(N_sim):
     test_metrics = evaluate_model(gp_temp, likelihood_temp, X_test, y_test_nonstand, scaler)
     train_metrics = evaluate_model(gp_temp, likelihood_temp, X_train, y_train_nonstand, scaler)
 
+    # if train_metrics['mse'] < best_metrics['mse']:
     if test_metrics['mse'] < best_metrics['mse']:
         best_metrics = test_metrics
+        # best_metrics = train_metrics
         best_gp = copy.deepcopy(gp_temp)
         best_likelihood = copy.deepcopy(likelihood_temp)
         print(f'Sim: {n+1}/{N_sim}, New best - Test MSE: {test_metrics["mse"]:.6f}, Train MSE: {train_metrics["mse"]:.6f}')
@@ -443,7 +446,7 @@ with torch.no_grad(), gpytorch.settings.fast_pred_var():
     best_std = np.sqrt(full_pred.variance.numpy()) * scaler.scale_[0]
 
 """ 4. Enhanced results analysis """
-hyperparams = get_hyper(best_gp, kernel)
+hyperparams = get_hyper(best_gp)
 
 print('\n' + '='*60)
 print('ENHANCED OPTIMIZATION RESULTS')
@@ -465,7 +468,7 @@ for key, value in hyperparams.items():
     if isinstance(value, list):
         print(f"{key}: {[f'{v:.4f}' for v in value]}")
     else:
-        print(f"{key}: {value:.6f}")
+        print('\nhyper: ', hyperparams)
 
 # Feature importance (for single kernel types)
 if 'lengthscales' in hyperparams:
@@ -502,6 +505,9 @@ fig.autofmt_xdate()
 
 title_suffix = " (Target Reached)" if target_reached else ""
 plt.title(f'Expert {index} - {kernel} Kernel{title_suffix}', fontsize=16)
+ax.fill_between(date_time, best_mu - 1.96*best_std, best_mu + 1.96*best_std, 
+                alpha=0.3, color='coral', label='95% CI')
+ax.plot(date_time, y_raw, color='grey', label='Raw', markersize=4)
 ax.plot(date_time, y_processed, '*', color='green', label='Actual', markersize=4)
 ax.plot(date_time, best_mu, color='red', label=f'GP-{kernel}', linewidth=2)
 ax.axvline(x=date_time[end_indx], color='black', linestyle='--', 

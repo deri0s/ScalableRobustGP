@@ -18,7 +18,7 @@ PROCESSED_PATH = ROOT_PATH / "data" / "processed" / "Training_data_partitions"
 EXPERT_PATH = ROOT_PATH / "trained" / "experts"
 
 apply_timelags = True
-N_partitions = 5
+N_partitions = 1
 
 def align_inputs(x_df, y_df, t_series):
     xdeep = x_df.copy()
@@ -59,6 +59,29 @@ def align_inputs(x_df, y_df, t_series):
 
     return xdeep, ydeep
 
+def get_hyper(gp, kernel_type):
+    """Extract hyperparameters based on kernel type"""
+    results = {}
+    
+    if hasattr(gp.covar_module, 'kernels'):  # Additive kernel
+        results['kernel_type'] = 'additive'
+        for i, k in enumerate(gp.covar_module.kernels):
+            if hasattr(k, 'base_kernel'):
+                if hasattr(k.base_kernel, 'lengthscale'):
+                    results[f'kernel_{i}_lengthscales'] = k.base_kernel.lengthscale.squeeze().tolist()
+                if hasattr(k.base_kernel, 'alpha'):
+                    results[f'kernel_{i}_alpha'] = k.base_kernel.alpha.item()
+                results[f'kernel_{i}_outputscale'] = k.outputscale.item()
+    else:  # Single kernel
+        results['outputscale'] = gp.covar_module.outputscale.item()
+        if hasattr(gp.covar_module.base_kernel, 'lengthscale'):
+            results['lengthscales'] = gp.covar_module.base_kernel.lengthscale.squeeze().tolist()
+        if hasattr(gp.covar_module.base_kernel, 'alpha'):
+            results['alpha'] = gp.covar_module.base_kernel.alpha.item()
+    
+    results['noise'] = gp.likelihood.noise.item()
+    return results
+
 
 for index in range(N_partitions):
     file = PROCESSED_PATH / f'data{index}.xlsx'
@@ -80,7 +103,6 @@ for index in range(N_partitions):
     X = torch.tensor(X_np, dtype=floating_point)
 
     """ 2. Load trained experts """
-
     expert_path = os.path.join(EXPERT_PATH, f'expert{index}.pth')
     scaler_path = os.path.join(EXPERT_PATH, f'scaler{index}.pth')
         
