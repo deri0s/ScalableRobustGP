@@ -25,7 +25,6 @@ PROCESSED_PATH = ROOT_PATH / "data" / "processed" / "Training_data_partitions"
 EXPERT_PATH = ROOT_PATH / "trained" / "experts"
 
 apply_timelags = True
-N_partitions = 5
 
 def align_inputs(x_df, y_df, t_series):
     xdeep = x_df.copy()
@@ -204,7 +203,7 @@ auto_trainer.param_stds = stds
 print(f"\n🔧 Starting hyperparameter tuning")
 tuned_gp = auto_trainer.tune(
     gp_to_tune=gp0,
-    N_sim=50,
+    N_sim=10,
     mse_stop=0.001,
     lr=0.005,
     training_iterations=200,

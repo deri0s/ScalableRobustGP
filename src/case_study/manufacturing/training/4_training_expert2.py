@@ -23,7 +23,7 @@ Enhanced User Configuration
 # Enhanced configuration
 data_index = 2
 M = 168
-N_sim = 10
+N_sim = 200
 kernel = 'RBF'  # Options: 'RBF', 'RQ', 'Matern52', 'RBF+Linear', 'RBF+RQ'
 use_log_space = True
 use_early_stopping = True
@@ -31,8 +31,8 @@ training_iter = 200  # Increased iterations
 learning_rate = 0.005  # Reduced for stability
 
 # Target-based early stopping parameters
-mse_training_target = 0.008
-mse_test_target = 0.01
+mse_training_target = 0.0001
+mse_test_target = 0.0005
 use_target_early_stopping = True  # Set to False to disable target-based early stopping
 
 # NSG post processes data location
@@ -488,6 +488,12 @@ if use_target_early_stopping:
     print(f"\nTarget Achievement Status:")
     print(f"Training MSE target ({mse_training_target}): {'✅ ACHIEVED' if train_metrics['mse'] <= mse_training_target else '❌ NOT ACHIEVED'}")
     print(f"Test MSE target ({mse_test_target}): {'✅ ACHIEVED' if best_metrics['mse'] <= mse_test_target else '❌ NOT ACHIEVED'}")
+
+
+""" SAVE TRAINED EXPERT """
+# Save models to the model directory (SageMaker will handle S3 upload)
+model_path = ROOT_PATH / "trained" / f"expert{data_index}.pth"
+scaler_path = ROOT_PATH / "trained" / f"scaler{data_index}.pth"
 
 #-----------------------------------------------------------------------------
 # PLOTS

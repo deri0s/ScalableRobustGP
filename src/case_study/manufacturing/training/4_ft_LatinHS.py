@@ -244,7 +244,7 @@ for n in range(N_sim):
     mll = gpytorch.mlls.VariationalELBO(likelihood, gp, num_data=X_train.size(0))
 
     # 4. Training loop
-    training_iter = 80  # Adjust as needed
+    training_iter = 200  # Adjust as needed
     for _ in range(training_iter):
         optimizer.zero_grad()
         output = gp(X_train)

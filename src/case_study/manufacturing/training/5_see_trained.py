@@ -4,6 +4,7 @@ import gpytorch
 import pandas as pd
 from matplotlib import pyplot as plt
 from pathlib import Path
+from sklearn.metrics import mean_squared_error
 from gpytorch.likelihoods import GaussianLikelihood
 
 """
@@ -18,7 +19,7 @@ PROCESSED_PATH = ROOT_PATH / "data" / "processed" / "Training_data_partitions"
 EXPERT_PATH = ROOT_PATH / "trained" / "experts"
 
 apply_timelags = True
-N_partitions = 1
+N_partitions = 5
 
 def align_inputs(x_df, y_df, t_series):
     xdeep = x_df.copy()
@@ -108,7 +109,7 @@ for index in range(N_partitions):
         
     # Load train expert
     gp = torch.load(expert_path, weights_only=False)
-    scaler = torch.load(scaler_path)
+    scaler = torch.load(scaler_path, weights_only=False)
 
     likelihood = GaussianLikelihood()
 
@@ -127,6 +128,9 @@ for index in range(N_partitions):
         lower_stand, upper_stand = observed_pred.confidence_region()
         lower = scaler.inverse_transform(lower_stand.unsqueeze(1))[:,0]
         upper = scaler.inverse_transform(upper_stand.unsqueeze(1))[:,0]
+
+        print(f'MSE(train-test): {mean_squared_error(y_processed,
+                                                     mu)}')
 
     #-----------------------------------------------------------------------------
     # PLOT TRAINING DATA
