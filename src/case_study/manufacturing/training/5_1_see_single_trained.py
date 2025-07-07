@@ -110,8 +110,8 @@ X = torch.tensor(X_np, dtype=floating_point)
 
 
 """ 2. Load trained experts """
-expert_path = os.path.join(EXPERT_PATH, f'expert{data_index}1.pth')
-scaler_path = os.path.join(EXPERT_PATH, f'scaler{data_index}1.pth')
+expert_path = os.path.join(EXPERT_PATH, f'expert{data_index}.pth')
+scaler_path = os.path.join(EXPERT_PATH, f'scaler{data_index}.pth')
 
 print("Exper: ", data_index)
 # Load train expert
@@ -146,140 +146,46 @@ else:
     print('\nFeature Importance (sorted by lengthscale):')
     print(feature_importance.sort_values(by='lengthscales'))
 
+# Predictions
+gp.eval()
+likelihood.eval()
+with torch.no_grad(), gpytorch.settings.fast_pred_var():
+    observed_pred = likelihood(gp(X))
 
-""" 3. Load second trained expert """
-# Training df
-X_df = pd.read_excel(file, sheet_name='X_stand')
-y_df = pd.read_excel(file, sheet_name='y_nonstand')
-t_df = pd.read_excel(file, sheet_name='timelags')
-t_series = t_df.iloc[0, :]
+    # Unormalise predictions
+    pred_mean = observed_pred.mean
+    mu = scaler.inverse_transform(pred_mean.unsqueeze(1))[:,0]
+    stds = scaler.inverse_transform(observed_pred.stddev.unsqueeze(1))[:,0]
+    lower_stand, upper_stand = observed_pred.confidence_region()
+    lower = scaler.inverse_transform(lower_stand.unsqueeze(1))[:,0]
+    upper = scaler.inverse_transform(upper_stand.unsqueeze(1))[:,0]
 
-X_df, y_df = align_inputs(X_df, y_df, t_df.iloc[0,:])
+    print(f'MSE(train-test): {mean_squared_error(y_processed,
+                                                    mu)}')
 
-X_np = X_df.values
-y_processed = y_df.y_processed.values
-date_time = y_df.date_time.values
+#-----------------------------------------------------------------------------
+# PLOT TRAINING DATA
+#-----------------------------------------------------------------------------
+end_indx = int(len(X)*0.8)
+fig, ax = plt.subplots()
 
-# Convert data to torch tensors
-floating_point = torch.float64
-X = torch.tensor(X_np, dtype=floating_point)
-expert_path = os.path.join(EXPERT_PATH, f'expert{data_index}.pth')
-scaler_path = os.path.join(EXPERT_PATH, f'scaler{data_index}.pth')
+# Increase the size of the axis numbers
+plt.rcdefaults()
+plt.rc('xtick', labelsize=14)
+plt.rc('ytick', labelsize=14)
+fig.autofmt_xdate()
 
-# Load train expert
-gp = torch.load(expert_path, weights_only=False)
-scaler = torch.load(scaler_path, weights_only=False)
+plt.title(f'Expert {data_index}')
+ax.fill_between(date_time, mu - 1.96*stds, mu + 1.96*stds, 
+                alpha=0.3, color='coral', label='95% CI')
+ax.plot(date_time, y_processed, '*', color='green', label='Val')
+# ax.plot(date_time, y_filtered, color='blue', label='Filtered')
+# ax.plot(date_time[i_clean], y_clean, 'o', color='green', label='furnace')
+ax.plot(date_time, mu, color='red', label='GP')
+ax.vlines(x=date_time[end_indx], ymin=0, ymax=max(y_processed),
+        colors='black', ls='--', label='Test-data')
+ax.set_xlabel(" Date-time", fontsize=14)
+ax.set_ylabel(" Fault density", fontsize=14)
+plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
 
-likelihood = GaussianLikelihood()
-
-print(f'\nMain Kernel:\n {gp.covar_module.base_kernel}')
-
-hyperparams = get_hyper(gp)
-
-print('\nHyperparameters:')
-for key, value in hyperparams.items():
-    if not isinstance(value, list):
-        print(f"{key}: {value}")
-
-# feature importance
-print('\nFeature Importance (sorted by lengthscale):')
-if hyperparams['kernel_type'] == 'additive':
-    for i in range(2):
-        print(f'Kernel: {hyperparams[f'kernel_{i}_name']}')
-        feature_importance = pd.DataFrame({
-            'inputs': X_df.columns.values, 
-            'lengthscales': hyperparams[f'kernel_{i}_lengthscales']
-        })
-        print(feature_importance.sort_values(by='lengthscales'))
-else:
-    feature_importance = pd.DataFrame({
-        'inputs': X_df.columns.values, 
-        'lengthscales': hyperparams['lengthscales']
-    })
-    print('\nFeature Importance (sorted by lengthscale):')
-    print(feature_importance.sort_values(by='lengthscales'))
-
-print('\nHyperparameters:')
-for key, value in hyperparams.items():
-    if not isinstance(value, list):
-        if key == 'outputscale':
-            print(f"{key}: {value}, {hyperparams0['outputscale']}")
-        elif key == 'kernel_0_alpha':
-            print(f"{key}: {value}, {hyperparams0['alpha']}")
-        elif key == 'noise':
-            print(f"{key}: {value}, {hyperparams0['noise']}")
-
-
-""" 4. Train GP """
-
-# Enhanced inducing point initialization
-import warnings
-
-init_ip_method = 'kmeans++'
-
-if init_ip_method == 'random':
-    indices = np.random.choice(N_train, min(M, N_train), replace=False)
-    inducing_points = X_train[indices, :]
-else:
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        # Try multiple K-means initializations
-        best_inertia = float('inf')
-        best_centers = None
-        for _ in range(5):  # Multiple attempts
-            kmeans = KMeans(n_clusters=M, init='k-means++', n_init=10, random_state=None)
-            kmeans.fit(X_train)
-            if kmeans.inertia_ < best_inertia:
-                best_inertia = kmeans.inertia_
-                best_centers = kmeans.cluster_centers_
-        inducing_points = torch.tensor(best_centers, dtype=floating_point)
-
-print(f"Inducing points shape: {inducing_points.shape}")
-print(f"K-means inertia: {best_inertia:.4f}")
-
-gp_temp = SVGP(inducing_points, D, k_fresh)
-likelihood_temp = GaussianLikelihood(noise_constraint=Interval(1e-6, 0.1))  # Stricter noise constraint
-gp_temp.likelihood = likelihood_temp
-gp_temp.to(floating_point)
-
-# # # Predictions
-# # gp.eval()
-# # likelihood.eval()
-# # with torch.no_grad(), gpytorch.settings.fast_pred_var():
-# #     observed_pred = likelihood(gp(X))
-
-# #     # Unormalise predictions
-# #     pred_mean = observed_pred.mean
-# #     mu = scaler.inverse_transform(pred_mean.unsqueeze(1))[:,0]
-# #     stds = scaler.inverse_transform(observed_pred.stddev.unsqueeze(1))[:,0]
-# #     lower_stand, upper_stand = observed_pred.confidence_region()
-# #     lower = scaler.inverse_transform(lower_stand.unsqueeze(1))[:,0]
-# #     upper = scaler.inverse_transform(upper_stand.unsqueeze(1))[:,0]
-
-# #     print(f'MSE(train-test): {mean_squared_error(y_processed,
-# #                                                     mu)}')
-
-# # #-----------------------------------------------------------------------------
-# # # PLOT TRAINING DATA
-# # #-----------------------------------------------------------------------------
-# # end_indx = int(len(X)*0.8)
-# # fig, ax = plt.subplots()
-
-# # # Increase the size of the axis numbers
-# # plt.rcdefaults()
-# # plt.rc('xtick', labelsize=14)
-# # plt.rc('ytick', labelsize=14)
-# # fig.autofmt_xdate()
-
-# # plt.title(f'Expert {data_index}')
-# # ax.plot(date_time, y_processed, '*', color='green', label='Val')
-# # # ax.plot(date_time, y_filtered, color='blue', label='Filtered')
-# # # ax.plot(date_time[i_clean], y_clean, 'o', color='green', label='furnace')
-# # ax.plot(date_time, mu, color='red', label='GP')
-# # ax.vlines(x=date_time[end_indx], ymin=0, ymax=max(y_processed),
-# #         colors='black', ls='--', label='Test-data')
-# # ax.set_xlabel(" Date-time", fontsize=14)
-# # ax.set_ylabel(" Fault density", fontsize=14)
-# # plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
-
-# # plt.show()
+plt.show()

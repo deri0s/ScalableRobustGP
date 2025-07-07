@@ -1,6 +1,7 @@
 import os
 import torch
 import gpytorch
+import yaml
 import pandas as pd
 import numpy as np
 from matplotlib import pyplot as plt
@@ -20,11 +21,11 @@ NSG data
 
 Do not adjust data for timelags.
 """
-M = 42
-training_iter = 200  # Increased iterations
-learning_rate = 0.03  # Reduced for stability
+M = 126
+training_iter = 200   # Increased iterations
+learning_rate = 0.0085  # 0.0095  # Reduced for stability
 
-data_index = 0
+data_index = 1
 # NSG post processes data location
 ROOT_PATH = Path(__file__).resolve().parent.parent
 PROCESSED_PATH = ROOT_PATH / "data" / "processed" / "Training_data_partitions"
@@ -38,9 +39,9 @@ def align_inputs(x_df, y_df, t_series):
     # Ensure t_series values are numeric before finding max
     numeric_t_series = pd.to_numeric(t_series, errors='coerce').fillna(0)
     if numeric_t_series.empty:
-         max_lag = 0
+        max_lag = 0
     else:
-         max_lag = int(max(numeric_t_series))
+        max_lag = int(max(numeric_t_series))
 
     # X
     for name, lag in t_series.items():
@@ -48,7 +49,7 @@ def align_inputs(x_df, y_df, t_series):
         try:
             lag_int = int(float(lag))
             if lag_int > 0: # Only shift if lag is positive
-                 xdeep[name] = xdeep[name].shift(lag_int)
+                xdeep[name] = xdeep[name].shift(lag_int)
         except ValueError:
             print(f"Warning: Could not convert lag '{lag}' for feature '{name}' to int. Skipping shift.")
 
@@ -104,6 +105,14 @@ y_df = pd.read_excel(file, sheet_name='y_nonstand')
 t_df = pd.read_excel(file, sheet_name='timelags')
 t_series = t_df.iloc[0, :]
 
+# feature selection
+# drop_inputs = ['9282 Tweel Position', '10091 Furnace Load']
+# for i in drop_inputs:
+#     X_df.drop(columns=[i], inplace=True)
+#     t_df.drop(columns=[i], inplace=True)
+
+# drop_inputs_dict = {'to_drop': drop_inputs}
+
 X_df, y_df = align_inputs(X_df, y_df, t_df.iloc[0,:])
 
 X_np = X_df.values
@@ -117,14 +126,14 @@ expert_path = os.path.join(EXPERT_PATH, f'expert{data_index}.pth')
 scaler_path = os.path.join(EXPERT_PATH, f'scaler{data_index}.pth')
 
 # Load train expert
-gp = torch.load(expert_path, weights_only=False)
+gp0 = torch.load(expert_path, weights_only=False)
 scaler = torch.load(scaler_path, weights_only=False)
 
-likelihood = GaussianLikelihood()
+likelihood0 = GaussianLikelihood()
 
-print(f'\nMain Kernel:\n {gp.covar_module.base_kernel}')
+print(f'\nMain Kernel:\n {gp0.covar_module.base_kernel}')
 
-hyperparams = get_hyper(gp)
+hyperparams = get_hyper(gp0)
 
 print('\nHyperparameters:')
 for key, value in hyperparams.items():
@@ -191,7 +200,7 @@ y_test_stand = scaler.transform(y_test_reshape)
 y_train = torch.tensor(y_stand_np, dtype=floating_point).squeeze()
 y_test = torch.tensor(y_test_stand, dtype=floating_point).squeeze()
 
-init_ip_method = 'kmeans++'
+init_ip_method = 'kmeans'
 
 if init_ip_method == 'random':
     indices = np.random.choice(N_train, min(M, N_train), replace=False)
@@ -209,12 +218,13 @@ else:
                 best_inertia = kmeans.inertia_
                 best_centers = kmeans.cluster_centers_
         inducing_points = torch.tensor(best_centers, dtype=floating_point)
+        print(f"K-means inertia: {best_inertia:.4f}")
 
 print(f"\nInducing points shape: {inducing_points.shape}")
-print(f"K-means inertia: {best_inertia:.4f}")
 
 # kernel
-kernel = ScaleKernel(RQ(ard_num_dims=D, dtype=floating_point) + RBF(ard_num_dims=D, dtype=floating_point))
+# kernel = ScaleKernel(RQ(ard_num_dims=D, dtype=floating_point) + RBF(ard_num_dims=D, dtype=floating_point))
+kernel = ScaleKernel(RQ(ard_num_dims=D, dtype=floating_point))
 gp = SVGP(inducing_points, D, kernel)
 likelihood = GaussianLikelihood(noise_constraint=Interval(1e-6, 0.1))  # Stricter noise constraint
 gp.likelihood = likelihood
@@ -222,13 +232,11 @@ gp.to(floating_point)
 
 # set initial hyperparameter
 gp.covar_module.outputscale = torch.tensor(9.5, dtype=floating_point)
-gp.covar_module.base_kernel.kernels[0].alpha = torch.tensor(8)
-ls_rq = feature_importance0['lengthscales'].copy()
-ls_rq[11] = 1000
-gp.covar_module.base_kernel.kernels[0].lengthscale = torch.tensor(ls_rq,
-                                                                  dtype=floating_point)
-gp.covar_module.base_kernel.kernels[1].lengthscale = torch.tensor(feature_importance['lengthscales'],
-                                                                  dtype=floating_point)
+gp.covar_module.base_kernel.alpha = torch.tensor(1.9)  # best=4
+ls_rq = feature_importance['lengthscales'].copy()
+# ls_rq[4] = 5
+gp.covar_module.base_kernel.lengthscale = torch.tensor(ls_rq, dtype=floating_point)
+
 likelihood.noise = torch.tensor(0.001, dtype=floating_point)
 
 # Train model
@@ -249,22 +257,39 @@ for _ in range(training_iter):
     optimizer.step()
 
 # Predictions
+gp0.eval()
+likelihood0.eval()
+
 gp.eval()
 likelihood.eval()
 with torch.no_grad(), gpytorch.settings.fast_pred_var():
+    
     observed_pred = likelihood(gp(X))
+    observed_pred_train = likelihood(gp(X_train))
+    observed_pred_test = likelihood(gp(X_test))
 
     # Unormalise predictions
     pred_mean = observed_pred.mean
+    pred_mean_train = observed_pred_train.mean
+    pred_mean_test = observed_pred_test.mean
+
     mu = scaler.inverse_transform(pred_mean.unsqueeze(1))[:,0]
+    mu_train = scaler.inverse_transform(pred_mean_train.unsqueeze(1))[:,0]
+    mu_test = scaler.inverse_transform(pred_mean_test.unsqueeze(1))[:,0]
     stds = scaler.inverse_transform(observed_pred.stddev.unsqueeze(1))[:,0]
     lower_stand, upper_stand = observed_pred.confidence_region()
     lower = scaler.inverse_transform(lower_stand.unsqueeze(1))[:,0]
     upper = scaler.inverse_transform(upper_stand.unsqueeze(1))[:,0]
 
-    print(f'MSE(train-test): {mean_squared_error(y_processed,
-                                                    mu)}')
+    mse_all = mean_squared_error(y_processed, mu)
+    mse_train = mean_squared_error(y_train, mu_train)
+    mse_test = mean_squared_error(y_test, mu_test)
+
+    print(f'MSE0(train): {mse_train:.6f}')
+    print(f'MSE(test):  {mse_test:.6f}')
+    print(f'MSE0(all): {mse_all:.6f}')
     
+
 """ Print Estimated Hyperparameter"""
 hyperparams = get_hyper(gp)
 
@@ -299,6 +324,18 @@ else:
     print('\nFeature Importance (sorted by lengthscale):')
     print(feature_importance.sort_values(by='lengthscales'))
 
+
+""" SAVE TRAINED EXPERT """
+model_path = EXPERT_PATH / f"expert{data_index}.pth"
+scaler_path = EXPERT_PATH / f"scaler{data_index}.pth"
+
+# torch.save(gp, model_path)
+# torch.save(scaler, scaler_path)
+
+# droped inputs
+# with open(EXPERT_PATH / 'droped_inputs.yaml', 'w') as file:
+#     yaml.dump(drop_inputs_dict, file)
+
 #-----------------------------------------------------------------------------
 # PLOT TRAINING DATA
 #-----------------------------------------------------------------------------
@@ -311,7 +348,7 @@ plt.rc('xtick', labelsize=14)
 plt.rc('ytick', labelsize=14)
 fig.autofmt_xdate()
 
-plt.title(f'Expert {data_index}')
+plt.title(f'M={M}, MSE-train: {mse_train:.6f}, MSE-test: {mse_test:.6f}, MSE-all: {mse_all:.6f}')
 ax.fill_between(date_time, mu - 1.96*stds, mu + 1.96*stds, 
                 alpha=0.3, color='coral', label='95% CI')
 ax.plot(date_time, y_processed, '*', color='green', label='Val')
