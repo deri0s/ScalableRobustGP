@@ -95,6 +95,33 @@ def get_hyper(gp):
     results['noise'] = gp.likelihood.noise.item()
     return results
 
+def predict_and_eval(gp, likelihood, scaler):
+    gp.eval()
+    likelihood.eval()
+    with torch.no_grad(), gpytorch.settings.fast_pred_var():
+        observed_pred = likelihood(gp(X))
+        observed_pred_train = likelihood(gp(X_train))
+        observed_pred_test = likelihood(gp(X_test))
+
+        # Unormalise predictions
+        pred_mean = observed_pred.mean
+        pred_mean_train = observed_pred_train.mean
+        pred_mean_test = observed_pred_test.mean
+
+    mu = scaler.inverse_transform(pred_mean.unsqueeze(1))[:,0]
+    mu_train = scaler.inverse_transform(pred_mean_train.unsqueeze(1))[:,0]
+    mu_test = scaler.inverse_transform(pred_mean_test.unsqueeze(1))[:,0]
+    stds = scaler.inverse_transform(observed_pred.stddev.unsqueeze(1))[:,0]
+    lower_stand, upper_stand = observed_pred.confidence_region()
+    lower = scaler.inverse_transform(lower_stand.unsqueeze(1))[:,0]
+    upper = scaler.inverse_transform(upper_stand.unsqueeze(1))[:,0]
+
+    mse_all = mean_squared_error(y_processed, mu)
+    mse_train = mean_squared_error(y_train, mu_train)
+    mse_test = mean_squared_error(y_test, mu_test)
+
+    return mse_all, mse_train, mse_test, mu, lower, upper
+
 
 file = PROCESSED_PATH / f'data{data_index}.xlsx'
 
@@ -256,38 +283,20 @@ for _ in range(training_iter):
     loss.backward()
     optimizer.step()
 
-# Predictions
-gp0.eval()
-likelihood0.eval()
+############### original ###################
+mse_all0, mse_train0, mse_test0, mu0 = predict_and_eval(gp0,
+                                                     likelihood0,
+                                                     scaler)[0:4]
+print(f'\nMSE0(train): {mse_train0:.6f}')
+print(f'MSE0(test):  {mse_test0:.6f}')
+print(f'MSE0(all): {mse_all0:.6f}')
 
-gp.eval()
-likelihood.eval()
-with torch.no_grad(), gpytorch.settings.fast_pred_var():
-    
-    observed_pred = likelihood(gp(X))
-    observed_pred_train = likelihood(gp(X_train))
-    observed_pred_test = likelihood(gp(X_test))
-
-    # Unormalise predictions
-    pred_mean = observed_pred.mean
-    pred_mean_train = observed_pred_train.mean
-    pred_mean_test = observed_pred_test.mean
-
-    mu = scaler.inverse_transform(pred_mean.unsqueeze(1))[:,0]
-    mu_train = scaler.inverse_transform(pred_mean_train.unsqueeze(1))[:,0]
-    mu_test = scaler.inverse_transform(pred_mean_test.unsqueeze(1))[:,0]
-    stds = scaler.inverse_transform(observed_pred.stddev.unsqueeze(1))[:,0]
-    lower_stand, upper_stand = observed_pred.confidence_region()
-    lower = scaler.inverse_transform(lower_stand.unsqueeze(1))[:,0]
-    upper = scaler.inverse_transform(upper_stand.unsqueeze(1))[:,0]
-
-    mse_all = mean_squared_error(y_processed, mu)
-    mse_train = mean_squared_error(y_train, mu_train)
-    mse_test = mean_squared_error(y_test, mu_test)
-
-    print(f'MSE0(train): {mse_train:.6f}')
-    print(f'MSE(test):  {mse_test:.6f}')
-    print(f'MSE0(all): {mse_all:.6f}')
+mse_all, mse_train, mse_test, mu, lower, upper = predict_and_eval(gp,
+                                                              likelihood,
+                                                              scaler)
+print(f'\nMSE(train): {mse_train:.6f}')
+print(f'MSE(test):  {mse_test:.6f}')
+print(f'MSE0(all): {mse_all:.6f}')
     
 
 """ Print Estimated Hyperparameter"""
@@ -349,9 +358,12 @@ plt.rc('ytick', labelsize=14)
 fig.autofmt_xdate()
 
 plt.title(f'M={M}, MSE-train: {mse_train:.6f}, MSE-test: {mse_test:.6f}, MSE-all: {mse_all:.6f}')
-ax.fill_between(date_time, mu - 1.96*stds, mu + 1.96*stds, 
+ax.fill_between(date_time, mu + lower, mu + upper, 
                 alpha=0.3, color='coral', label='95% CI')
+# ax.fill_between(date_time, mu - 1.96*stds, mu + 1.96*stds, 
+                # alpha=0.3, color='coral', label='95% CI')
 ax.plot(date_time, y_processed, '*', color='green', label='Val')
+ax.plot(date_time, mu0, color='blue', label='GP0')
 ax.plot(date_time, mu, color='red', label='GP')
 ax.vlines(x=date_time[end_indx], ymin=0, ymax=max(y_processed),
         colors='black', ls='--', label='Test-data')

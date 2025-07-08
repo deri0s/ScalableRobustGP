@@ -1,6 +1,7 @@
 import os
 import torch
 import gpytorch
+import yaml
 import pandas as pd
 from matplotlib import pyplot as plt
 from pathlib import Path
@@ -60,7 +61,7 @@ def align_inputs(x_df, y_df, t_series):
 
     return xdeep, ydeep
 
-def get_hyper(gp, kernel_type):
+def get_hyper(gp):
     """Extract hyperparameters based on kernel type"""
     results = {}
     
@@ -92,6 +93,15 @@ for index in range(N_partitions):
     y_df = pd.read_excel(file, sheet_name='y_nonstand')
     t_df = pd.read_excel(file, sheet_name='timelags')
     t_series = t_df.iloc[0, :]
+
+    if os.path.exists(os.path.join(EXPERT_PATH, f'dropped_inputs{index}.yaml')):
+        dropped_path = os.path.join(EXPERT_PATH, f'dropped_inputs{index}.yaml')
+        with open(dropped_path, 'r') as f:
+            dropped = yaml.load(f, Loader=yaml.SafeLoader)
+        
+        for input in dropped['to_drop']:
+            X_df.drop(columns=input, inplace=True)
+            t_df.drop(columns=input, inplace=True)
 
     X_df, y_df = align_inputs(X_df, y_df, t_df.iloc[0,:])
 
