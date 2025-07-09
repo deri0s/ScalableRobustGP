@@ -14,7 +14,7 @@ NSG data
 Do not adjust data for timelags.
 """
 
-data_index = 0
+data_index = 4
 # NSG post processes data location
 ROOT_PATH = Path(__file__).resolve().parent.parent
 PROCESSED_PATH = ROOT_PATH / "data" / "processed" / "Training_data_partitions"

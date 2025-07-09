@@ -155,6 +155,8 @@ for index in range(N_partitions):
     fig.autofmt_xdate()
 
     plt.title(f'Expert {index}')
+    ax.fill_between(date_time, lower, upper, 
+                    alpha=0.3, color='coral', label='95% CI')
     ax.plot(date_time, y_processed, '*', color='green', label='Val')
     # ax.plot(date_time, y_filtered, color='blue', label='Filtered')
     # ax.plot(date_time[i_clean], y_clean, 'o', color='green', label='furnace')
