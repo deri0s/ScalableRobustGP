@@ -83,8 +83,14 @@ class DistributedSVGP:
     def _load_experts(self, N_GPs=None):
         """Load SVGP experts from directory"""
         
-        # Find all model files in the directory
-        model_files = sorted(list(self.expert_dir.glob('expert*.pt')))
+        # Find all model files in the directory (try both .pt and .pth extensions)
+        model_files = sorted(list(self.expert_dir.glob('expert*.pth')))
+        if not model_files:
+            model_files = sorted(list(self.expert_dir.glob('expert*.pt')))
+        if not model_files:
+            model_files = sorted(list(self.expert_dir.glob('expert_*.pt')))
+        if not model_files:
+            model_files = sorted(list(self.expert_dir.glob('expert_*.pth')))
         
         if not model_files:
             raise FileNotFoundError(f"No expert models found in {self.expert_dir}")
@@ -100,7 +106,7 @@ class DistributedSVGP:
                 # Load the saved model state
                 checkpoint = torch.load(model_file, map_location=self.device)
                 
-                # Reconstruct the model (you may need to adjust this based on your saving format)
+                # Reconstruct the model
                 expert = self._reconstruct_expert(checkpoint)
                 likelihood = self._reconstruct_likelihood(checkpoint)
                 
@@ -123,33 +129,67 @@ class DistributedSVGP:
     def _reconstruct_expert(self, checkpoint):
         """
         Reconstruct SVGP expert from checkpoint
-        Modify this method based on how you saved your models
+        Handles common PyTorch saving patterns
         """
-        # This is a template - you'll need to adjust based on your saving format
-        if 'model_state_dict' in checkpoint:
-            # Assuming you saved the complete model structure
-            expert = checkpoint['model']  # or reconstruct based on saved parameters
+        # Check if checkpoint is a dict or the model itself
+        if hasattr(checkpoint, '__dict__') and hasattr(checkpoint, 'forward'):
+            # This is likely the model itself (SVGP instance)
+            expert = checkpoint
+        elif isinstance(checkpoint, dict):
+            if 'model' in checkpoint:
+                # Complete model saved
+                expert = checkpoint['model']
+            elif 'model_state_dict' in checkpoint:
+                # State dict saved - need to reconstruct architecture
+                raise NotImplementedError("State dict only saving detected. Please provide model architecture details or save the complete model.")
+            elif 'state_dict' in checkpoint:
+                # Alternative state dict naming
+                raise NotImplementedError("State dict only saving detected. Please provide model architecture details or save the complete model.")
+            else:
+                # Try to find the model in the dict
+                # Look for objects that might be the model
+                for key, value in checkpoint.items():
+                    if hasattr(value, '__dict__') and hasattr(value, 'forward'):
+                        expert = value
+                        break
+                else:
+                    # Assume the entire dict is the model
+                    expert = checkpoint
         else:
-            # If you only saved state_dict, you'll need to reconstruct the architecture
-            # This requires knowing the model architecture parameters
-            raise NotImplementedError("Please implement model reconstruction based on your saving format")
+            # Assume the loaded object is the model itself
+            expert = checkpoint
         
         return expert
     
     def _reconstruct_likelihood(self, checkpoint):
         """
         Reconstruct likelihood from checkpoint
-        Modify this method based on how you saved your models
+        Handles common PyTorch saving patterns
         """
-        # This is a template - you'll need to adjust based on your saving format
-        if 'likelihood_state_dict' in checkpoint:
+        if hasattr(checkpoint, '__dict__') and hasattr(checkpoint, 'forward'):
+            # This is the model itself, create default likelihood
             likelihood = gpytorch.likelihoods.GaussianLikelihood()
-            likelihood.load_state_dict(checkpoint['likelihood_state_dict'])
-        elif 'likelihood' in checkpoint:
-            likelihood = checkpoint['likelihood']
+            print("Warning: Model saved without likelihood, using default GaussianLikelihood")
+        elif isinstance(checkpoint, dict):
+            if 'likelihood' in checkpoint:
+                likelihood = checkpoint['likelihood']
+            elif 'likelihood_state_dict' in checkpoint:
+                likelihood = gpytorch.likelihoods.GaussianLikelihood()
+                likelihood.load_state_dict(checkpoint['likelihood_state_dict'])
+            else:
+                # Look for likelihood in the dict
+                for key, value in checkpoint.items():
+                    if hasattr(value, 'noise') or 'likelihood' in key.lower():
+                        likelihood = value
+                        break
+                else:
+                    # Default likelihood if not found
+                    likelihood = gpytorch.likelihoods.GaussianLikelihood()
+                    print("Warning: No likelihood found in checkpoint, using default GaussianLikelihood")
         else:
-            # Default likelihood if not saved
+            # Default likelihood
             likelihood = gpytorch.likelihoods.GaussianLikelihood()
+            print("Warning: Using default GaussianLikelihood")
         
         return likelihood
     
@@ -254,24 +294,48 @@ class DistributedSVGP:
         # Get predictions from all experts
         with torch.no_grad():
             for i in range(self.N_GPs):
-                # Get predictions from expert
-                expert_output = self.experts[i](X_star)
-                observed_pred = self.likelihoods[i](expert_output)
-                
-                # Extract mean and variance
-                mu_all[:, i] = observed_pred.mean.cpu().numpy()
-                sigma_all[:, i] = observed_pred.stddev.cpu().numpy()
+                try:
+                    # Get predictions from expert
+                    expert_output = self.experts[i](X_star)
+                    observed_pred = self.likelihoods[i](expert_output)
+                    
+                    # Extract mean and variance
+                    mu_all[:, i] = observed_pred.mean.cpu().numpy()
+                    sigma_all[:, i] = observed_pred.stddev.cpu().numpy()
+                    
+                    print(f"Expert {i} - Mean shape: {observed_pred.mean.shape}, Std shape: {observed_pred.stddev.shape}")
+                    
+                except Exception as e:
+                    print(f"Error getting predictions from expert {i}: {e}")
+                    # Set to default values if expert fails
+                    mu_all[:, i] = np.zeros(N_star)
+                    sigma_all[:, i] = np.ones(N_star)
+        
+        print(f"mu_all shape: {mu_all.shape}, sigma_all shape: {sigma_all.shape}")
         
         # Calculate the normalised predictive power (betas)
         betas = np.zeros([N_star, self.N_GPs])
         prior_std = 1 + 1e-6  # Add jitter term to prevent numeric error
         
         for i in range(self.N_GPs):
+            # Ensure sigma values are positive
+            sigma_all[:, i] = np.maximum(sigma_all[:, i], 1e-6)
             betas[:, i] = 0.5 * (np.log(prior_std) - np.log(sigma_all[:, i]**2))
         
-        # Normalise betas
-        scaler = MinMaxScaler(feature_range=(0, 1))
-        betas = scaler.fit_transform(betas)
+        print(f"betas shape before normalization: {betas.shape}")
+        print(f"betas range: [{np.min(betas)}, {np.max(betas)}]")
+        
+        # Check if we have any valid experts
+        if self.N_GPs == 0:
+            raise RuntimeError("No valid experts available for prediction")
+        
+        # Normalise betas only if we have valid data
+        if np.any(np.isfinite(betas)):
+            scaler = MinMaxScaler(feature_range=(0, 1))
+            betas = scaler.fit_transform(betas)
+        else:
+            print("Warning: All betas are invalid, using uniform weights")
+            betas = np.ones_like(betas) / self.N_GPs
         
         # Eliminate beta values <= 0.5 (threshold for expert reliability)
         betas[betas <= 0.5] = 0

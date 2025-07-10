@@ -85,6 +85,34 @@ def get_hyper(gp):
     return results
 
 
+def predict_and_eval(gp, likelihood, scaler, X, X_train, X_test):
+    gp.eval()
+    likelihood.eval()
+    with torch.no_grad(), gpytorch.settings.fast_pred_var():
+        observed_pred = likelihood(gp(X))
+        observed_pred_train = likelihood(gp(X_train))
+        observed_pred_test = likelihood(gp(X_test))
+
+        # Unormalise predictions
+        pred_mean = observed_pred.mean
+        pred_mean_train = observed_pred_train.mean
+        pred_mean_test = observed_pred_test.mean
+
+    mu = scaler.inverse_transform(pred_mean.unsqueeze(1))[:,0]
+    mu_train = scaler.inverse_transform(pred_mean_train.unsqueeze(1))[:,0]
+    mu_test = scaler.inverse_transform(pred_mean_test.unsqueeze(1))[:,0]
+    stds = scaler.inverse_transform(observed_pred.stddev.unsqueeze(1))[:,0]
+    lower_stand, upper_stand = observed_pred.confidence_region()
+    lower = scaler.inverse_transform(lower_stand.unsqueeze(1))[:,0]
+    upper = scaler.inverse_transform(upper_stand.unsqueeze(1))[:,0]
+
+    mse_all = mean_squared_error(y_processed, mu)
+    mse_train = mean_squared_error(y_train, mu_train)
+    mse_test = mean_squared_error(y_test, mu_test)
+
+    return mse_all, mse_train, mse_test, mu, lower, upper
+
+
 for index in range(N_partitions):
     file = PROCESSED_PATH / f'data{index}.xlsx'
 
@@ -105,13 +133,29 @@ for index in range(N_partitions):
 
     X_df, y_df = align_inputs(X_df, y_df, t_df.iloc[0,:])
 
+    N, D = X_df.shape
     X_np = X_df.values
     y_processed = y_df.y_processed.values
     date_time = y_df.date_time.values
 
+    end_indx = int(len(X_np)*0.8)
+    end_train = N - end_indx
+    X_train = X_np[0:end_train]
+    date_train = date_time[0:end_train]
+    N_train = len(X_train)
+    y_train_nonstand = y_processed[0:end_train]
+
+    # Define X_test_np and y_test_nonstand correctly for evaluation metric
+    X_test = X_np[end_train:N]
+    y_test_nonstand = y_processed[end_train:N]
+
     # Convert data to torch tensors
     floating_point = torch.float64
     X = torch.tensor(X_np, dtype=floating_point)
+    X_train = torch.tensor(X_train, dtype=floating_point)
+    y_train = torch.tensor(y_train_nonstand, dtype=floating_point).squeeze()
+    X_test = torch.tensor(X_test, dtype=floating_point)
+    y_test = torch.tensor(y_test_nonstand, dtype=floating_point).squeeze()
 
     """ 2. Load trained experts """
     expert_path = os.path.join(EXPERT_PATH, f'expert{index}.pth')
@@ -123,29 +167,20 @@ for index in range(N_partitions):
 
     likelihood = GaussianLikelihood()
 
-    print(f'\nEstimated Kerne:\n {gp.covar_module.base_kernel}')
+    k_name = gp.covar_module.base_kernel.__class__.__name__.replace('Kernel', '')
+    print(f'\nEstimated Kernel:\n {k_name}')
 
     # Predictions
     gp.eval()
     likelihood.eval()
-    with torch.no_grad(), gpytorch.settings.fast_pred_var():
-        observed_pred = likelihood(gp(X))
 
-        # Unormalise predictions
-        pred_mean = observed_pred.mean
-        mu = scaler.inverse_transform(pred_mean.unsqueeze(1))[:,0]
-        stds = scaler.inverse_transform(observed_pred.stddev.unsqueeze(1))[:,0]
-        lower_stand, upper_stand = observed_pred.confidence_region()
-        lower = scaler.inverse_transform(lower_stand.unsqueeze(1))[:,0]
-        upper = scaler.inverse_transform(upper_stand.unsqueeze(1))[:,0]
-
-        print(f'MSE(train-test): {mean_squared_error(y_processed,
-                                                     mu)}')
+    (mse_all, mse_train, mse_test,
+     mu, lower, upper) = predict_and_eval(gp, likelihood, scaler,
+                                          X, X_train, X_test)
 
     #-----------------------------------------------------------------------------
     # PLOT TRAINING DATA
     #-----------------------------------------------------------------------------
-    end_indx = int(len(X)*0.8)
     fig, ax = plt.subplots()
 
     # Increase the size of the axis numbers
@@ -154,7 +189,8 @@ for index in range(N_partitions):
     plt.rc('ytick', labelsize=14)
     fig.autofmt_xdate()
 
-    plt.title(f'Expert {index}')
+    plt.title(f'Expert: {index}, K: {k_name}, MSE-train: {mse_train:.4f}, MSE-test: {mse_test:.4f}, MSE-all: {mse_all:.4f}')
+    # plt.title(f'Expert {index}')
     ax.fill_between(date_time, lower, upper, 
                     alpha=0.3, color='coral', label='95% CI')
     ax.plot(date_time, y_processed, '*', color='green', label='Val')

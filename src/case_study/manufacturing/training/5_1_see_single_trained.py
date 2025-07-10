@@ -83,6 +83,33 @@ def get_hyper(gp):
     results['noise'] = gp.likelihood.noise.item()
     return results
 
+def predict_and_eval(gp, likelihood, scaler):
+    gp.eval()
+    likelihood.eval()
+    with torch.no_grad(), gpytorch.settings.fast_pred_var():
+        observed_pred = likelihood(gp(X))
+        observed_pred_train = likelihood(gp(X_train))
+        observed_pred_test = likelihood(gp(X_test))
+
+        # Unormalise predictions
+        pred_mean = observed_pred.mean
+        pred_mean_train = observed_pred_train.mean
+        pred_mean_test = observed_pred_test.mean
+
+    mu = scaler.inverse_transform(pred_mean.unsqueeze(1))[:,0]
+    mu_train = scaler.inverse_transform(pred_mean_train.unsqueeze(1))[:,0]
+    mu_test = scaler.inverse_transform(pred_mean_test.unsqueeze(1))[:,0]
+    stds = scaler.inverse_transform(observed_pred.stddev.unsqueeze(1))[:,0]
+    lower_stand, upper_stand = observed_pred.confidence_region()
+    lower = scaler.inverse_transform(lower_stand.unsqueeze(1))[:,0]
+    upper = scaler.inverse_transform(upper_stand.unsqueeze(1))[:,0]
+
+    mse_all = mean_squared_error(y_processed, mu)
+    mse_train = mean_squared_error(y_train, mu_train)
+    mse_test = mean_squared_error(y_test, mu_test)
+
+    return mse_all, mse_train, mse_test, mu, lower, upper
+
 
 file = PROCESSED_PATH / f'data{data_index}.xlsx'
 
