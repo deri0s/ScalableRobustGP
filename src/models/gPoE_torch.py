@@ -10,10 +10,12 @@ from gpytorch.models import ApproximateGP
 from gpytorch.variational import CholeskyVariationalDistribution, VariationalStrategy
 from gpytorch.means import ConstantMean
 from gpytorch.distributions import MultivariateNormal
+import pickle
 
 """
 A distributed robust GP class using GPyTorch SVGP experts with gPoE approach.
 Based on the generalised Product of Experts (gPoE) approach (Deisenroth and Wei Ng, 2015).
+Enhanced with unstandardization capabilities.
 """
 
 class SVGP(ApproximateGP):
@@ -45,7 +47,8 @@ class SVGP(ApproximateGP):
 
 class DistributedSVGP:
     
-    def __init__(self, expert_dir, N_GPs=None, device='cpu', plot_expert_pred=False):
+    def __init__(self, expert_dir, N_GPs, device='cpu', plot_expert_pred=False, 
+                 scaler_dir=None, global_scaler_path=None):
         """
         Initialize the Distributed SVGP with gPoE approach
         
@@ -59,16 +62,28 @@ class DistributedSVGP:
             Device to run computations on ('cpu' or 'cuda')
         plot_expert_pred : bool
             Whether to plot individual expert predictions
+        scaler_dir : str or Path, optional
+            Directory containing the scaler files for each expert
+        global_scaler_path : str or Path, optional
+            Path to a global scaler file (if all experts use the same scaler)
         """
         
         self.expert_dir = Path(expert_dir)
         self.device = device
         self.plot_expert_pred = plot_expert_pred
         
-        # Load expert models
+        # Scaler information
+        self.scaler_dir = Path(scaler_dir) if scaler_dir else None
+        self.global_scaler_path = Path(global_scaler_path) if global_scaler_path else None
+        
+        # Load expert models and scalers
         self.experts = []
         self.likelihoods = []
+        self.scalers = []  # Store scalers for each expert
+        self.global_scaler = None
+        
         self._load_experts(N_GPs)
+        self._load_scalers(N_GPs)
         
         self.N_GPs = len(self.experts)
         self.is_loaded = True
@@ -85,7 +100,6 @@ class DistributedSVGP:
         
         # Find all model files in the directory (try both .pt and .pth extensions)
         model_files = sorted(list(self.expert_dir.glob('expert*.pth')))
-        scaler_files = sorted(list(self.expert_dir.glob('scaler*.pth')))
         
         # Limit number of experts if specified
         if N_GPs is not None:
@@ -117,6 +131,120 @@ class DistributedSVGP:
             except Exception as e:
                 print(f"Error loading expert {i}: {e}")
                 continue
+    
+    def _load_scalers(self, N_GPs):
+        """Load scalers for unstandardization"""
+        
+        # Option 1: Load global scaler if provided
+        if self.global_scaler_path and self.global_scaler_path.exists():
+            try:
+                if self.global_scaler_path.suffix == '.pkl':
+                    with open(self.global_scaler_path, 'rb') as f:
+                        self.global_scaler = pickle.load(f)
+                elif self.global_scaler_path.suffix == '.pth':
+                    scaler_data = torch.load(self.global_scaler_path, map_location='cpu')
+                    self.global_scaler = self._reconstruct_scaler(scaler_data)
+                
+                print(f"Loaded global scaler from {self.global_scaler_path}")
+                
+                # Use global scaler for all experts
+                self.scalers = [self.global_scaler] * self.N_GPs
+                return
+                
+            except Exception as e:
+                print(f"Error loading global scaler: {e}")
+        
+        # Option 2: Load individual scalers for each expert
+        if self.scaler_dir and self.scaler_dir.exists():
+            scaler_files = sorted(list(self.scaler_dir.glob('scaler*.pkl')))
+            scaler_files.extend(sorted(list(self.scaler_dir.glob('scaler*.pth'))))
+            
+            for i in range(N_GPs):
+                scaler = None
+                
+                # Try to find corresponding scaler file
+                for scaler_file in scaler_files:
+                    if f'scaler{i}' in str(scaler_file) or f'scaler_{i}' in str(scaler_file):
+                        try:
+                            if scaler_file.suffix == '.pkl':
+                                with open(scaler_file, 'rb') as f:
+                                    scaler = pickle.load(f)
+                            elif scaler_file.suffix == '.pth':
+                                scaler_data = torch.load(scaler_file, map_location='cpu')
+                                scaler = self._reconstruct_scaler(scaler_data)
+                            break
+                        except Exception as e:
+                            print(f"Error loading scaler {i}: {e}")
+                
+                self.scalers.append(scaler)
+                if scaler is not None:
+                    print(f"Loaded scaler for expert {i}")
+                else:
+                    print(f"No scaler found for expert {i}")
+        
+        # Option 3: Try to extract scalers from expert checkpoints
+        if not self.scalers or all(s is None for s in self.scalers):
+            print("Attempting to extract scalers from expert checkpoints...")
+            self._extract_scalers_from_checkpoints()
+    
+    def _extract_scalers_from_checkpoints(self):
+        """Extract scalers from expert checkpoint files if available"""
+        model_files = sorted(list(self.expert_dir.glob('expert*.pth')))
+        
+        for i, model_file in enumerate(model_files):
+            if i >= self.N_GPs:
+                break
+                
+            try:
+                checkpoint = torch.load(model_file, map_location='cpu')
+                scaler = None
+                
+                # Look for scaler in various possible keys
+                scaler_keys = ['scaler', 'y_scaler', 'target_scaler', 'output_scaler']
+                for key in scaler_keys:
+                    if key in checkpoint:
+                        scaler = checkpoint[key]
+                        break
+                
+                if scaler is not None:
+                    print(f"Found scaler in checkpoint for expert {i}")
+                
+                if len(self.scalers) <= i:
+                    self.scalers.append(scaler)
+                else:
+                    self.scalers[i] = scaler
+                    
+            except Exception as e:
+                print(f"Error extracting scaler from expert {i} checkpoint: {e}")
+                if len(self.scalers) <= i:
+                    self.scalers.append(None)
+    
+    def _reconstruct_scaler(self, scaler_data):
+        """Reconstruct scaler from saved data"""
+        if hasattr(scaler_data, 'transform'):
+            # Already a scaler object
+            return scaler_data
+        elif isinstance(scaler_data, dict):
+            # Try to reconstruct from dict
+            if 'scale_' in scaler_data and 'min_' in scaler_data:
+                # MinMaxScaler
+                scaler = MinMaxScaler()
+                scaler.scale_ = scaler_data['scale_']
+                scaler.min_ = scaler_data['min_']
+                if 'data_min_' in scaler_data:
+                    scaler.data_min_ = scaler_data['data_min_']
+                if 'data_max_' in scaler_data:
+                    scaler.data_max_ = scaler_data['data_max_']
+                return scaler
+            elif 'mean_' in scaler_data and 'scale_' in scaler_data:
+                # StandardScaler
+                from sklearn.preprocessing import StandardScaler
+                scaler = StandardScaler()
+                scaler.mean_ = scaler_data['mean_']
+                scaler.scale_ = scaler_data['scale_']
+                return scaler
+        
+        return None
     
     def _reconstruct_expert(self, checkpoint):
         """
@@ -201,6 +329,97 @@ class DistributedSVGP:
             while len(self.c) < self.N_GPs:
                 self.c.extend(plt.cm.tab20(np.linspace(0, 1, 20)).tolist())
     
+    def set_scaler(self, scaler, expert_idx=None):
+        """
+        Manually set a scaler for unstandardization
+        
+        Parameters
+        ----------
+        scaler : sklearn scaler object
+            The scaler to use for unstandardization
+        expert_idx : int, optional
+            Index of the expert to set the scaler for. If None, sets as global scaler
+        """
+        if expert_idx is None:
+            # Set as global scaler
+            self.global_scaler = scaler
+            self.scalers = [scaler] * self.N_GPs
+            print("Set global scaler for all experts")
+        else:
+            # Set scaler for specific expert
+            if expert_idx < len(self.scalers):
+                self.scalers[expert_idx] = scaler
+                print(f"Set scaler for expert {expert_idx}")
+            else:
+                raise IndexError(f"Expert index {expert_idx} out of range")
+    
+    def _unstandardize_predictions(self, mu, sigma, expert_idx=None):
+        """
+        Unstandardize predictions using the appropriate scaler
+        
+        Parameters
+        ----------
+        mu : numpy.ndarray
+            Standardized mean predictions
+        sigma : numpy.ndarray
+            Standardized standard deviation predictions
+        expert_idx : int, optional
+            Index of the expert (for individual scaler). If None, uses global scaler
+            
+        Returns
+        -------
+        mu_unstd : numpy.ndarray
+            Unstandardized mean predictions
+        sigma_unstd : numpy.ndarray
+            Unstandardized standard deviation predictions
+        """
+        
+        # Determine which scaler to use
+        if expert_idx is not None and expert_idx < len(self.scalers):
+            scaler = self.scalers[expert_idx]
+        elif self.global_scaler is not None:
+            scaler = self.global_scaler
+        else:
+            print("Warning: No scaler available for unstandardization")
+            return mu, sigma
+        
+        if scaler is None:
+            print("Warning: Scaler is None, returning standardized predictions")
+            return mu, sigma
+        
+        try:
+            # Unstandardize mean
+            mu_unstd = mu.copy()
+            
+            # Handle different scaler types
+            if hasattr(scaler, 'inverse_transform'):
+                # For sklearn scalers
+                mu_unstd = scaler.inverse_transform(mu_unstd.reshape(-1, 1)).flatten()
+            elif hasattr(scaler, 'scale_') and hasattr(scaler, 'min_'):
+                # Manual MinMaxScaler unstandardization
+                mu_unstd = mu_unstd / scaler.scale_ - scaler.min_
+            elif hasattr(scaler, 'mean_') and hasattr(scaler, 'scale_'):
+                # Manual StandardScaler unstandardization
+                mu_unstd = mu_unstd * scaler.scale_ + scaler.mean_
+            
+            # Unstandardize standard deviation
+            sigma_unstd = sigma.copy()
+            
+            # For standard deviation, we only need to scale (not shift)
+            if hasattr(scaler, 'scale_'):
+                if hasattr(scaler, 'min_'):
+                    # MinMaxScaler: scale by the scaling factor
+                    sigma_unstd = sigma_unstd / scaler.scale_
+                else:
+                    # StandardScaler: scale by the scaling factor
+                    sigma_unstd = sigma_unstd * scaler.scale_
+            
+            return mu_unstd, sigma_unstd
+            
+        except Exception as e:
+            print(f"Error during unstandardization: {e}")
+            return mu, sigma
+    
     def plot_expert(self, X_test, mu_all):
         """Plot the predictions of each expert"""
         plt.figure(figsize=(12, 8))
@@ -217,8 +436,17 @@ class DistributedSVGP:
         plt.tight_layout()
         plt.show()
     
-    def add_expert(self, expert_path):
-        """Add a new expert to the ensemble"""
+    def add_expert(self, expert_path, scaler_path=None):
+        """
+        Add a new expert to the ensemble
+        
+        Parameters
+        ----------
+        expert_path : str or Path
+            Path to the expert model file
+        scaler_path : str or Path, optional
+            Path to the scaler file for this expert
+        """
         if not self.is_loaded:
             raise RuntimeError("Load experts first before adding new ones")
         
@@ -234,6 +462,21 @@ class DistributedSVGP:
             
             self.experts.append(expert)
             self.likelihoods.append(likelihood)
+            
+            # Load scaler if provided
+            scaler = None
+            if scaler_path:
+                try:
+                    if Path(scaler_path).suffix == '.pkl':
+                        with open(scaler_path, 'rb') as f:
+                            scaler = pickle.load(f)
+                    elif Path(scaler_path).suffix == '.pth':
+                        scaler_data = torch.load(scaler_path, map_location='cpu')
+                        scaler = self._reconstruct_scaler(scaler_data)
+                except Exception as e:
+                    print(f"Error loading scaler for new expert: {e}")
+            
+            self.scalers.append(scaler)
             self.N_GPs += 1
             
             print(f"Added expert. Total experts: {self.N_GPs}")
@@ -246,26 +489,30 @@ class DistributedSVGP:
         if 0 <= index < self.N_GPs:
             del self.experts[index]
             del self.likelihoods[index]
+            if index < len(self.scalers):
+                del self.scalers[index]
             self.N_GPs -= 1
             print(f"Removed expert {index}. Total experts: {self.N_GPs}")
         else:
             raise IndexError(f"Expert index {index} out of range")
     
-    def predict(self, X_star):
+    def predict(self, X_star, unstandardize=True):
         """
         Make predictions using the gPoE approach
         
         Parameters
         ----------
         X_star : torch.Tensor or numpy.ndarray
-            Test input points
+            Test input points (should be standardized if experts were trained on standardized data)
+        unstandardize : bool
+            Whether to unstandardize the final predictions
         
         Returns
         -------
         mu_star : numpy.ndarray
-            gPoE predictive mean
+            gPoE predictive mean (unstandardized if unstandardize=True)
         std_star : numpy.ndarray
-            gPoE predictive standard deviation
+            gPoE predictive standard deviation (unstandardized if unstandardize=True)
         betas : numpy.ndarray
             Expert weights/powers [N_star x N_GPs]
         """
@@ -292,18 +539,23 @@ class DistributedSVGP:
                     observed_pred = self.likelihoods[i](expert_output)
                     
                     # Extract mean and variance
-                    mu_all[:, i] = observed_pred.mean.cpu().numpy()
-                    sigma_all[:, i] = observed_pred.stddev.cpu().numpy()
+                    mu_expert = observed_pred.mean.cpu().numpy()
+                    sigma_expert = observed_pred.stddev.cpu().numpy()
                     
-                    print(f"Expert {i} - Mean shape: {observed_pred.mean.shape}, Std shape: {observed_pred.stddev.shape}")
+                    # Unstandardize individual expert predictions if needed
+                    if unstandardize:
+                        mu_expert, sigma_expert = self._unstandardize_predictions(
+                            mu_expert, sigma_expert, expert_idx=i
+                        )
+                    
+                    mu_all[:, i] = mu_expert
+                    sigma_all[:, i] = sigma_expert
                     
                 except Exception as e:
                     print(f"Error getting predictions from expert {i}: {e}")
                     # Set to default values if expert fails
                     mu_all[:, i] = np.zeros(N_star)
                     sigma_all[:, i] = np.ones(N_star)
-        
-        print(f"mu_all shape: {mu_all.shape}, sigma_all shape: {sigma_all.shape}")
         
         # Calculate the normalised predictive power (betas)
         betas = np.zeros([N_star, self.N_GPs])
@@ -313,9 +565,6 @@ class DistributedSVGP:
             # Ensure sigma values are positive
             sigma_all[:, i] = np.maximum(sigma_all[:, i], 1e-6)
             betas[:, i] = 0.5 * (np.log(prior_std) - np.log(sigma_all[:, i]**2))
-        
-        print(f"betas shape before normalization: {betas.shape}")
-        print(f"betas range: [{np.min(betas)}, {np.max(betas)}]")
         
         # Check if we have any valid experts
         if self.N_GPs == 0:
@@ -356,16 +605,18 @@ class DistributedSVGP:
         
         return mu_star, std_star, betas
     
-    def predict_with_uncertainty(self, X_star, return_individual=False):
+    def predict_with_uncertainty(self, X_star, return_individual=False, unstandardize=True):
         """
         Make predictions with detailed uncertainty information
         
         Parameters
         ----------
         X_star : torch.Tensor or numpy.ndarray
-            Test input points
+            Test input points (should be standardized if experts were trained on standardized data)
         return_individual : bool
             Whether to return individual expert predictions
+        unstandardize : bool
+            Whether to unstandardize the predictions
             
         Returns
         -------
@@ -378,7 +629,7 @@ class DistributedSVGP:
             - 'individual_stds': Individual expert stds (if return_individual=True)
         """
         
-        mu_star, std_star, betas = self.predict(X_star)
+        mu_star, std_star, betas = self.predict(X_star, unstandardize=unstandardize)
         
         results = {
             'mean': mu_star,
@@ -402,10 +653,36 @@ class DistributedSVGP:
                     expert_output = self.experts[i](X_star)
                     observed_pred = self.likelihoods[i](expert_output)
                     
-                    individual_means[:, i] = observed_pred.mean.cpu().numpy()
-                    individual_stds[:, i] = observed_pred.stddev.cpu().numpy()
+                    mu_expert = observed_pred.mean.cpu().numpy()
+                    sigma_expert = observed_pred.stddev.cpu().numpy()
+                    
+                    # Unstandardize individual expert predictions if needed
+                    if unstandardize:
+                        mu_expert, sigma_expert = self._unstandardize_predictions(
+                            mu_expert, sigma_expert, expert_idx=i
+                        )
+                    
+                    individual_means[:, i] = mu_expert
+                    individual_stds[:, i] = sigma_expert
             
             results['individual_means'] = individual_means
             results['individual_stds'] = individual_stds
         
         return results
+    
+    def get_scaler_info(self):
+        """Get information about loaded scalers"""
+        info = {
+            'global_scaler': self.global_scaler is not None,
+            'individual_scalers': [s is not None for s in self.scalers],
+            'scaler_types': []
+        }
+        
+        for i, scaler in enumerate(self.scalers):
+            if scaler is not None:
+                scaler_type = type(scaler).__name__
+                info['scaler_types'].append(f"Expert {i}: {scaler_type}")
+            else:
+                info['scaler_types'].append(f"Expert {i}: None")
+        
+        return info
