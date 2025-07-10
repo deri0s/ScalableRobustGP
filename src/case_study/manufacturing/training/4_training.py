@@ -593,7 +593,6 @@ with torch.no_grad(), gpytorch.settings.fast_pred_var():
 
 
 """ 4. Results analysis """
-hyperparams = get_hyper(best_gp)
 
 print('\n' + '='*60)
 print('OPTIMISATION RESULTS WITH MEDIAN HEURISTIC')
@@ -609,6 +608,8 @@ print(f"Final test MSE: {best_metrics['mse']:.6f}")
 print(f"Final test R²: {best_metrics['r2']:.4f}")
 print(f"Final test MAE: {best_metrics['mae']:.6f}")
 print(f"Mean prediction uncertainty: {best_metrics['mean_uncertainty']:.4f}")
+
+hyperparams = get_hyper(best_gp)
 
 print('\nHyperparameters:')
 for key, value in hyperparams.items():

@@ -85,15 +85,7 @@ class DistributedSVGP:
         
         # Find all model files in the directory (try both .pt and .pth extensions)
         model_files = sorted(list(self.expert_dir.glob('expert*.pth')))
-        if not model_files:
-            model_files = sorted(list(self.expert_dir.glob('expert*.pt')))
-        if not model_files:
-            model_files = sorted(list(self.expert_dir.glob('expert_*.pt')))
-        if not model_files:
-            model_files = sorted(list(self.expert_dir.glob('expert_*.pth')))
-        
-        if not model_files:
-            raise FileNotFoundError(f"No expert models found in {self.expert_dir}")
+        scaler_files = sorted(list(self.expert_dir.glob('scaler*.pth')))
         
         # Limit number of experts if specified
         if N_GPs is not None:

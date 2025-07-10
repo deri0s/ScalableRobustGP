@@ -83,7 +83,7 @@ def get_hyper(gp):
     results['noise'] = gp.likelihood.noise.item()
     return results
 
-def predict_and_eval(gp, likelihood, scaler):
+def predict_and_eval(gp, likelihood, scaler, X, X_train, X_test):
     gp.eval()
     likelihood.eval()
     with torch.no_grad(), gpytorch.settings.fast_pred_var():

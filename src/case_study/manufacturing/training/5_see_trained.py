@@ -9,18 +9,15 @@ from sklearn.metrics import mean_squared_error
 from gpytorch.likelihoods import GaussianLikelihood
 
 """
-NSG data
-
-Do not adjust data for timelags.
+Inputs
 """
+
+N_partitions = 5
 
 # NSG post processes data location
 ROOT_PATH = Path(__file__).resolve().parent.parent
 PROCESSED_PATH = ROOT_PATH / "data" / "processed" / "Training_data_partitions"
 EXPERT_PATH = ROOT_PATH / "trained" / "experts"
-
-apply_timelags = True
-N_partitions = 5
 
 def align_inputs(x_df, y_df, t_series):
     xdeep = x_df.copy()
@@ -64,25 +61,57 @@ def align_inputs(x_df, y_df, t_series):
 def get_hyper(gp):
     """Extract hyperparameters based on kernel type"""
     results = {}
-    
-    if hasattr(gp.covar_module, 'kernels'):  # Additive kernel
+
+    if hasattr(gp.covar_module.base_kernel, 'kernels'):  # Additive kernel
         results['kernel_type'] = 'additive'
-        for i, k in enumerate(gp.covar_module.kernels):
-            if hasattr(k, 'base_kernel'):
-                if hasattr(k.base_kernel, 'lengthscale'):
-                    results[f'kernel_{i}_lengthscales'] = k.base_kernel.lengthscale.squeeze().tolist()
-                if hasattr(k.base_kernel, 'alpha'):
-                    results[f'kernel_{i}_alpha'] = k.base_kernel.alpha.item()
-                results[f'kernel_{i}_outputscale'] = k.outputscale.item()
+        results[f'outputscale'] = gp.covar_module.outputscale.item()
+        for i, k in enumerate(gp.covar_module.base_kernel.kernels):
+            results[f'kernel_{i}_name'] = k.__class__.__name__
+            if hasattr(k, 'lengthscale'):
+                results[f'kernel_{i}_lengthscales'] = k.lengthscale.squeeze().tolist()
+            if hasattr(k, 'alpha'):
+                results[f'kernel_{i}_alpha'] = k.alpha.item()
     else:  # Single kernel
+        results['kernel_type'] = 'single'
         results['outputscale'] = gp.covar_module.outputscale.item()
         if hasattr(gp.covar_module.base_kernel, 'lengthscale'):
             results['lengthscales'] = gp.covar_module.base_kernel.lengthscale.squeeze().tolist()
         if hasattr(gp.covar_module.base_kernel, 'alpha'):
             results['alpha'] = gp.covar_module.base_kernel.alpha.item()
-    
+
     results['noise'] = gp.likelihood.noise.item()
     return results
+
+
+def print_est_hyper(hyperparams, X_df):
+    print('\nEstimated Hyperparameters:')
+    for key, value in hyperparams.items():
+        if not isinstance(value, list):
+            print(f"{key}: {value}")
+
+    print('\nFeature Importance (sorted by lengthscale):')
+    if hyperparams['kernel_type'] == 'additive':
+        for i in range(2):
+            name = hyperparams[f'kernel_{i}_name']
+            print(f'\nKernel: {name}')
+            if i == 0:
+                feature_importance0 = pd.DataFrame({
+                    'inputs': X_df.columns.values, 
+                    'lengthscales': hyperparams[f'kernel_{i}_lengthscales']
+                })
+                print(feature_importance0.sort_values(by='lengthscales'))
+            else:
+                feature_importance = pd.DataFrame({
+                    'inputs': X_df.columns.values, 
+                    'lengthscales': hyperparams[f'kernel_{i}_lengthscales']
+                })
+                print(feature_importance.sort_values(by='lengthscales'))
+    else:
+        feature_importance = pd.DataFrame({
+            'inputs': X_df.columns.values, 
+            'lengthscales': hyperparams['lengthscales']
+        })
+        print(feature_importance.sort_values(by='lengthscales'))
 
 
 def predict_and_eval(gp, likelihood, scaler, X, X_train, X_test):
@@ -170,9 +199,9 @@ for index in range(N_partitions):
     k_name = gp.covar_module.base_kernel.__class__.__name__.replace('Kernel', '')
     print(f'\nEstimated Kernel:\n {k_name}')
 
-    # Predictions
-    gp.eval()
-    likelihood.eval()
+    # print estimated hyperparameters
+    hyperparams = get_hyper(gp)
+    print_est_hyper(hyperparams, X_df)
 
     (mse_all, mse_train, mse_test,
      mu, lower, upper) = predict_and_eval(gp, likelihood, scaler,
@@ -190,7 +219,6 @@ for index in range(N_partitions):
     fig.autofmt_xdate()
 
     plt.title(f'Expert: {index}, K: {k_name}, MSE-train: {mse_train:.4f}, MSE-test: {mse_test:.4f}, MSE-all: {mse_all:.4f}')
-    # plt.title(f'Expert {index}')
     ax.fill_between(date_time, lower, upper, 
                     alpha=0.3, color='coral', label='95% CI')
     ax.plot(date_time, y_processed, '*', color='green', label='Val')
