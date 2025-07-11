@@ -22,9 +22,9 @@ Enhanced User Configuration
 """
 
 # Enhanced configuration
-data_index = 3  # expert3: Not working RQ, 
-M = 126  # Number of inducing points
-N_sim = 300
+data_index = 0  # expert3: Not working RQ, 
+M = 168  # Number of inducing points
+N_sim = 200
 kernel = 'RBF'  # Options: 'RBF', 'RQ', 'Matern52', 'RBF+RQ'
 use_log_space = True
 use_early_stopping = True
@@ -32,8 +32,8 @@ training_iter = 200
 learning_rate = 0.001  # Reduced for stability
 
 # Target-based early stopping parameters
-mse_training_target = 0.003  # 0.006
-mse_test_target = 0.001  # 0.008
+mse_training_target = 0.035  # 0.006
+mse_test_target = 0.02  # 0.008
 use_target_early_stopping = True  # Set to False to disable target-based early stopping
 
 # NSG post processes data location
@@ -242,8 +242,8 @@ def setup_hyperspace(kernel_type, D, X_train, use_log_space=True):
               lower_lengthscale = median_distances[i] * 0.5  # 10% of median
               upper_lengthscale = median_distances[i] * 100   # 10x median
 
-              lower_lengthscale = max(lower_lengthscale, 0.05)
-              upper_lengthscale = min(upper_lengthscale, 300)
+              lower_lengthscale = max(lower_lengthscale, 0.5)
+              upper_lengthscale = min(upper_lengthscale, 500)
 
             #   lower_lengthscale = max(median_distances[i] - std_distances[i], 0.01)
             #   upper_lengthscale = min(median_distances[i] + 10*std_distances[i], 100)
@@ -251,13 +251,20 @@ def setup_hyperspace(kernel_type, D, X_train, use_log_space=True):
               lowerb[i] = np.log(lower_lengthscale)
               upperb[i] = np.log(upper_lengthscale)
 
+          # Furnace Load
+          lowerb[4] = np.log(2)
+          upperb[4] = np.log(100)
+          # Tweel position
+          lowerb[12] = np.log(100)
+          upperb[12] = np.log(500)
+
           # Handle different kernel types
           if kernel_type in ['RBF', 'Matern52']:
               # outputscale bounds
-              lowerb[-2] = np.log(0.5)
-              upperb[-2] = np.log(70)
+              lowerb[-2] = np.log(1)
+              upperb[-2] = np.log(15)
               # noise bounds
-              lowerb[-1] = np.log(0.0009)
+              lowerb[-1] = np.log(0.001)
               upperb[-1] = np.log(0.009)
 
           elif kernel_type == 'RQ':
@@ -275,12 +282,12 @@ def setup_hyperspace(kernel_type, D, X_train, use_log_space=True):
             short_scale, long_scale = compute_multi_scale_ls(X_train)
 
             # RBF lengthscales (short-range, tighter bounds)
-            lowerb[0:D] = np.log(short_scale)
-            upperb[0:D] = np.log(short_scale * 5.0)
+            lowerb[0:D] = np.log(short_scale * 2)
+            upperb[0:D] = np.log(short_scale * 100.0)
             
             # RQ lengthscales (long-range, wider bounds)
-            lowerb[D:2*D] = np.log(long_scale)
-            upperb[D:2*D] = np.log(long_scale * 20.0)
+            lowerb[D:2*D] = np.log(long_scale * 20.0)
+            upperb[D:2*D] = np.log(long_scale * 200.0)
 
             # account for zeros
             zero_idx = np.where(lowerb == 0)[0]
@@ -289,13 +296,13 @@ def setup_hyperspace(kernel_type, D, X_train, use_log_space=True):
             upperb[zero_idx] = np.log(10)
 
             # outputscale
-            lowerb[-3] = np.log(0.5)
-            upperb[-3] = np.log(50)
+            lowerb[-3] = np.log(0.8)
+            upperb[-3] = np.log(60)
             # RQ alpha (linear)
             lowerb[-2] = 2
-            upperb[-2] = 10.0
+            upperb[-2] = 20.0
             # noise bounds
-            lowerb[-1] = np.log(0.002)
+            lowerb[-1] = np.log(0.0009)
             upperb[-1] = np.log(0.009)
     else:
         # Linear space bounds using median heuristic
@@ -562,10 +569,10 @@ for n in range(N_sim):
     test_metrics = evaluate_model(gp_temp, likelihood_temp, X_test, y_test_nonstand, scaler)
     train_metrics = evaluate_model(gp_temp, likelihood_temp, X, y_processed, scaler)
 
-    # if train_metrics['mse'] < best_metrics['mse']:
-    if test_metrics['mse'] < best_metrics['mse']:
-        best_metrics = test_metrics
-        # best_metrics = train_metrics
+    if train_metrics['mse'] < best_metrics['mse']:
+    # if test_metrics['mse'] < best_metrics['mse']:
+        # best_metrics = test_metrics
+        best_metrics = train_metrics
         best_gp = copy.deepcopy(gp_temp)
         best_likelihood = copy.deepcopy(likelihood_temp)
         print(f'Sim: {n+1}/{N_sim}, New best - Test MSE: {test_metrics["mse"]:.6f}, Train MSE: {train_metrics["mse"]:.6f}')

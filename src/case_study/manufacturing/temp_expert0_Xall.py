@@ -15,7 +15,7 @@ from sklearn.decomposition import PCA
 """
 NSG data
 """
-index = 4
+index = 0
 ROOT_PATH = Path(__file__).resolve().parent.parent
 PROCESSED_PATH = ROOT_PATH / "manufacturing" / "data" / "processed"
 EXPERT_PATH = ROOT_PATH / "manufacturing" / "trained" / "experts"
@@ -46,14 +46,14 @@ y_df = pd.read_excel(file, sheet_name='y')
 y_raw_df = pd.read_excel(file, sheet_name='y_raw')
 t_df = pd.read_excel(file, sheet_name='timelags')
 
-if os.path.exists(os.path.join(EXPERT_PATH, f'dropped_inputs{index}.yaml')):
-    dropped_path = os.path.join(EXPERT_PATH, f'dropped_inputs{index}.yaml')
-    with open(dropped_path, 'r') as f:
-        dropped = yaml.load(f, Loader=yaml.SafeLoader)
+# if os.path.exists(os.path.join(EXPERT_PATH, f'dropped_inputs{index}.yaml')):
+#     dropped_path = os.path.join(EXPERT_PATH, f'dropped_inputs{index}.yaml')
+#     with open(dropped_path, 'r') as f:
+#         dropped = yaml.load(f, Loader=yaml.SafeLoader)
     
-    for input in dropped['to_drop']:
-        X_df.drop(columns=input, inplace=True)
-        t_df.drop(columns=input, inplace=True)
+#     for input in dropped['to_drop']:
+#         X_df.drop(columns=input, inplace=True)
+#         t_df.drop(columns=input, inplace=True)
 
 # Pre-Process training data
 X, y0, N0, D, max_lag, time_lags = dpm.align_arrays(X_df, y_df, t_df)

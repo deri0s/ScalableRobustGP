@@ -151,14 +151,14 @@ for index in range(N_partitions):
     t_df = pd.read_excel(file, sheet_name='timelags')
     t_series = t_df.iloc[0, :]
 
-    if os.path.exists(os.path.join(EXPERT_PATH, f'dropped_inputs{index}.yaml')):
-        dropped_path = os.path.join(EXPERT_PATH, f'dropped_inputs{index}.yaml')
-        with open(dropped_path, 'r') as f:
-            dropped = yaml.load(f, Loader=yaml.SafeLoader)
+    # if os.path.exists(os.path.join(EXPERT_PATH, f'dropped_inputs{index}.yaml')):
+    #     dropped_path = os.path.join(EXPERT_PATH, f'dropped_inputs{index}.yaml')
+    #     with open(dropped_path, 'r') as f:
+    #         dropped = yaml.load(f, Loader=yaml.SafeLoader)
         
-        for input in dropped['to_drop']:
-            X_df.drop(columns=input, inplace=True)
-            t_df.drop(columns=input, inplace=True)
+    #     for input in dropped['to_drop']:
+    #         X_df.drop(columns=input, inplace=True)
+    #         t_df.drop(columns=input, inplace=True)
 
     X_df, y_df = align_inputs(X_df, y_df, t_df.iloc[0,:])
 
