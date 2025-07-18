@@ -96,7 +96,7 @@ plt.rc('xtick', labelsize=14)
 plt.rc('ytick', labelsize=14)
 fig.autofmt_xdate()
 ax.fill_between(date_time,
-                mu + 3*std, mu - 3*std,
+                mu + 2*std, mu - 2*std,
                 alpha=0.5, color='pink',
                 label='Confidence \nBounds (DRGPs)')
 ax.plot(date_time, y_raw[0:N], color='grey', label='Raw')
