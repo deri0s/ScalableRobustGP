@@ -169,7 +169,7 @@ try:
     ls_stds = generate_stds(lengthscales, base_std_dev=1e-1)
 except Exception as e:
     print(f"Warning: Could not extract lengthscales for tuning: {e}")
-    ls_stds = [1e-3] * D
+    ls_stds = [1e-4] * D
 
 stds = {'outputscale': 1e-4,
         'se_lengthscale': ls_stds,
@@ -183,11 +183,11 @@ auto_trainer.param_stds = stds
 print(f"\n🔧 Starting hyperparameter tuning")
 tuned_gp = auto_trainer.tune(
     gp_to_tune=gp0,
-    N_sim=5,
-    mse_stop=0.001,
+    N_sim=10,
+    mse_stop=0.075,
     lr=0.001,
     training_iterations=200,
-    batch_size=256)
+    batch_size=256, track_mse='training')
 print("✓ Hyperparameter tuning completed successfully")
 
 # Make predictions with tuned model

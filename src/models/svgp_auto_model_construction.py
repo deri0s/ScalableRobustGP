@@ -706,7 +706,8 @@ class GPTraining():
         return best_state_dict, mse_list
 
     def tune(self, gp_to_tune: ApproximateGP, N_sim, mse_stop=1e-3,
-            lr=0.01, training_iterations=100, batch_size=256, plot_mse=True):
+            lr=0.01, training_iterations=100, batch_size=256, plot_mse=True,
+            track_mse="eval"):
         """ Fine-tunes a GP by sampling params from Gaussian distribution """
 
         # Validation of stds happens during initialise_params
@@ -719,17 +720,17 @@ class GPTraining():
         gp_to_tune.eval()
         gp_to_tune.likelihood.eval()
 
-        # on eval data
-        with torch.no_grad(), gpytorch.settings.fast_pred_var():
-            observed_pred = gp_to_tune.likelihood(gp_to_tune(self.X_eval))
-        # best_mse = float('inf')
-        best_mse = mean_squared_error(observed_pred.mean, self.y_eval)
-
-        # # on training data
-        # with torch.no_grad(), gpytorch.settings.fast_pred_var():
-        #     observed_pred = gp_to_tune.likelihood(gp_to_tune(self.X_train))
-        # # bt_mse = float('inf')
-        # bt_mse = mean_squared_error(observed_pred.mean, self.y_train)
+        if track_mse == 'eval':
+            with torch.no_grad(), gpytorch.settings.fast_pred_var():
+                observed_pred = gp_to_tune.likelihood(gp_to_tune(self.X_eval))
+            # best_mse = float('inf')
+            best_mse = mean_squared_error(observed_pred.mean, self.y_eval)
+        else:
+            # on training data
+            # with torch.no_grad(), gpytorch.settings.fast_pred_var():
+            #     observed_pred = gp_to_tune.likelihood(gp_to_tune(self.X_train))
+            # best_mse = mean_squared_error(observed_pred.mean, self.y_train)
+            best_mse = float('inf')
 
         try:
             self.initialise_params(gp_to_tune, 'center')
@@ -768,25 +769,31 @@ class GPTraining():
                 training_mse_list.append(training_mse)
                 validation_mse_list.append(validation_mse)
 
-                # print(f'Tune Sim {i+1}/{N_sim} | Train MSE: {training_mse:.5f} | Val MSE: {validation_mse:.5f} | Current Best: {best_mse:.5f}')
-                # print(f'Tune Sim {i+1}/{N_sim} | Train MSE: {training_mse:.5f} | Val MSE: {validation_mse:.5f} | Current Best: {bt_mse:.5f}')
-
+                print(f'Tune Sim {i+1}/{N_sim} | Train MSE: {training_mse:.5f} | Val MSE: {validation_mse:.5f} | Current Best: {best_mse:.5f}')
+                
                 # Update best model if improvement
-                # if training_mse < bt_mse:  # and validation_mse < best_mse:
-                if validation_mse < best_mse:
-                    print(f"\nFound better parameters during tuning! Val MSE: {validation_mse:.5f} < {best_mse:.5f}\n")
-                    # print(f"\nFound better parameters during tuning! Val MSE: {training_mse:.5f} < {bt_mse:.5f}\n")
-                    best_mse = validation_mse
-                    # bt_mse = training_mse
-                    best_gp = copy.deepcopy(current_sim_gp) # Keep the whole model
-                    # Option: Re-center Gaussian around the new best? (Can sometimes lock in too early)
-                    # self.initialise_params(best_gp, 'center')
+                if track_mse == "eval":
+                    if validation_mse < best_mse:
+                        print(f"\nFound better parameters during tuning! Val MSE: {validation_mse:.5f} < {best_mse:.5f}\n")
+                        best_mse = validation_mse
+                        best_gp = copy.deepcopy(current_sim_gp) # Keep the whole model
+                        # Option: Re-center Gaussian around the new best? (Can sometimes lock in too early)
+                        # self.initialise_params(best_gp, 'center')
 
-                    # Check early stopping
-                    # if self.mse_stop is not None and training_mse < self.mse_stop:
-                    if self.mse_stop is not None and validation_mse < self.mse_stop:
-                        print(f'!! Target MSE ({self.mse_stop}) reached. Stopping Tuning early. !!')
-                        break # Stop simulation loop
+                        # Check early stopping
+                        if self.mse_stop is not None and validation_mse < self.mse_stop:
+                            print(f'!! Target MSE ({self.mse_stop}) reached. Stopping Tuning early. !!')
+                            break # Stop simulation loop
+                else:
+                    if training_mse < best_mse:
+                        print(f"\nFound better parameters during tuning! Val MSE: {training_mse:.5f} < {best_mse:.5f}\n")
+                        best_mse = training_mse
+                        best_gp = copy.deepcopy(current_sim_gp)
+                        # Check early stopping
+                        if self.mse_stop is not None and training_mse < self.mse_stop:
+                            print(f'!! Target MSE ({self.mse_stop}) reached. Stopping Tuning early. !!')
+                            break # Stop simulation loop
+
 
             except Exception as e:
                 print(f"ERROR during tuning simulation {i+1}: {e}")
