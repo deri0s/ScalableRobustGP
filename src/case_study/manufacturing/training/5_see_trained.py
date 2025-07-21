@@ -187,8 +187,8 @@ for index in range(N_partitions):
     y_test = torch.tensor(y_test_nonstand, dtype=floating_point).squeeze()
 
     """ 2. Load trained experts """
-    expert_path = os.path.join(EXPERT_PATH, f'expert{index}.pth')
-    scaler_path = os.path.join(EXPERT_PATH, f'scaler{index}.pth')
+    expert_path = os.path.join(EXPERT_PATH, f'expert0.pth')
+    scaler_path = os.path.join(EXPERT_PATH, f'scaler0.pth')
         
     # Load train expert
     gp = torch.load(expert_path, weights_only=False)
