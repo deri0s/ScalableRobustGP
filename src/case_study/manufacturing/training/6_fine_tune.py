@@ -20,7 +20,7 @@ NSG data
 Do not adjust data for timelags.
 """
 expert_index = 0
-data_index = 1
+data_index = 0
 
 # NSG post processes data location
 ROOT_PATH = Path(__file__).resolve().parent.parent
@@ -111,7 +111,7 @@ with torch.no_grad(), gpytorch.settings.fast_pred_var():
 
 """ 3. Fine tuning """
 
-eval_perc = 0.2
+eval_perc = 0.1
 end_train = N - int(N*eval_perc)
 
 X_train = X[0:end_train]
@@ -169,13 +169,13 @@ try:
     ls_stds = generate_stds(lengthscales, base_std_dev=1e-1)
 except Exception as e:
     print(f"Warning: Could not extract lengthscales for tuning: {e}")
-    ls_stds = [1e-4] * D
+    ls_stds = [1e-6] * D
 
-stds = {'outputscale': 1e-4,
+stds = {'outputscale': 1e-6,
         'se_lengthscale': ls_stds,
         'rq_lengthscale': ls_stds,
         'rq_alpha': 1e-3,
-        'noise_variance': 1e-3}
+        'noise_variance': 1e-5}
 
 # Update the trainer's stds dictionary
 auto_trainer.param_stds = stds
@@ -184,10 +184,10 @@ print(f"\n🔧 Starting hyperparameter tuning")
 tuned_gp = auto_trainer.tune(
     gp_to_tune=gp0,
     N_sim=10,
-    mse_stop=0.075,
+    mse_stop=0.01,
     lr=0.001,
     training_iterations=200,
-    batch_size=256, track_mse='training')
+    batch_size=256, track_mse='eval')
 print("✓ Hyperparameter tuning completed successfully")
 
 # Make predictions with tuned model
@@ -222,7 +222,7 @@ torch.save(scaler, scaler_path)
 #-----------------------------------------------------------------------------
 # PLOT TRAINING DATA
 #-----------------------------------------------------------------------------
-end_indx = int(len(X)*0.8)
+end_indx = int(len(X)*int(1-eval_perc))
 fig, ax = plt.subplots()
 
 # Increase the size of the axis numbers

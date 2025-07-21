@@ -579,7 +579,7 @@ class DistributedSVGP:
             betas = np.ones_like(betas) / self.N_GPs
         
         # Eliminate beta values <= 0.5 (threshold for expert reliability)
-        betas[betas <= 0.8] = 0
+        betas[betas <= 0.4] = 0
         
         # Compute the gPoE precision
         prec_star = np.zeros(N_star)
