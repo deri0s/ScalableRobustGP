@@ -28,12 +28,12 @@ N_sim = 200
 kernel = 'RBF'  # Options: 'RBF', 'RQ', 'Matern52', 'RBF+RQ'
 use_log_space = True
 use_early_stopping = True
-training_iter = 200
+training_iter = 300
 learning_rate = 0.001  # Reduced for stability
 
 # Target-based early stopping parameters
-mse_training_target = 0.035  # 0.006
-mse_test_target = 0.02  # 0.008
+mse_training_target = 0.009  # 0.006
+mse_test_target = 0.008  # 0.008
 use_target_early_stopping = True  # Set to False to disable target-based early stopping
 
 # NSG post processes data location
@@ -106,7 +106,7 @@ N, D = np.shape(X)
 
 """ 2. Standardise outputs """
 
-eval_perc = 0.2
+eval_perc = 0.6
 end_train = N - int(N*eval_perc)
 
 X_train = X[0:end_train]
@@ -239,24 +239,31 @@ def setup_hyperspace(kernel_type, D, X_train, use_log_space=True):
         # single kernel
         if kernel_type in ['RBF', 'RQ', 'Matern52']:
           for i in range(D):
-              lower_lengthscale = median_distances[i] * 0.5  # 10% of median
-              upper_lengthscale = median_distances[i] * 100   # 10x median
+            #   lower_lengthscale = median_distances[i] * 2  # 10% of median
+            #   upper_lengthscale = median_distances[i] * 100   # 10x median
 
-              lower_lengthscale = max(lower_lengthscale, 0.5)
-              upper_lengthscale = min(upper_lengthscale, 500)
+            #   lower_lengthscale = max(lower_lengthscale, 0.5)
+            #   upper_lengthscale = min(upper_lengthscale, 10)
 
             #   lower_lengthscale = max(median_distances[i] - std_distances[i], 0.01)
             #   upper_lengthscale = min(median_distances[i] + 10*std_distances[i], 100)
 
-              lowerb[i] = np.log(lower_lengthscale)
-              upperb[i] = np.log(upper_lengthscale)
+            #   lowerb[i] = np.log(lower_lengthscale)
+            #   upperb[i] = np.log(upper_lengthscale)
+
+              lowerb[i] = np.log(2)
+              upperb[i] = np.log(10)
+
+          # 2922 Closed Bottom Temperature - Downstream Working ...
+          lowerb[0] = np.log(1e14)
+          upperb[0] = np.log(8*1e14)
 
           # Furnace Load
-          lowerb[4] = np.log(2)
+          lowerb[4] = np.log(10)
           upperb[4] = np.log(100)
           # Tweel position
-          lowerb[12] = np.log(100)
-          upperb[12] = np.log(500)
+          lowerb[12] = np.log(80)
+          upperb[12] = np.log(100)
 
           # Handle different kernel types
           if kernel_type in ['RBF', 'Matern52']:
@@ -314,7 +321,7 @@ def setup_hyperspace(kernel_type, D, X_train, use_log_space=True):
 
         # Handle other parameters in linear space
         if kernel_type in ['RBF', 'Matern52']:
-            lowerb[-2] = 0.5  # outputscale
+            lowerb[-2] = 15  # outputscale
             upperb[-2] = 50
             lowerb[-1] = 0.001  # noise
             upperb[-1] = 0.01
@@ -569,10 +576,10 @@ for n in range(N_sim):
     test_metrics = evaluate_model(gp_temp, likelihood_temp, X_test, y_test_nonstand, scaler)
     train_metrics = evaluate_model(gp_temp, likelihood_temp, X, y_processed, scaler)
 
-    if train_metrics['mse'] < best_metrics['mse']:
-    # if test_metrics['mse'] < best_metrics['mse']:
-        # best_metrics = test_metrics
-        best_metrics = train_metrics
+    # if train_metrics['mse'] < best_metrics['mse']:
+    if test_metrics['mse'] < best_metrics['mse']:
+        best_metrics = test_metrics
+        # best_metrics = train_metrics
         best_gp = copy.deepcopy(gp_temp)
         best_likelihood = copy.deepcopy(likelihood_temp)
         print(f'Sim: {n+1}/{N_sim}, New best - Test MSE: {test_metrics["mse"]:.6f}, Train MSE: {train_metrics["mse"]:.6f}')
@@ -663,8 +670,8 @@ if use_target_early_stopping:
 
 
 """ SAVE TRAINED EXPERT """
-model_path = EXPERT_PATH / f'expert{data_index}.pth'
-scaler_path = EXPERT_PATH / f'scaler{data_index}.pth'
+model_path = EXPERT_PATH / f'expert{data_index}0.pth'
+scaler_path = EXPERT_PATH / f'scaler{data_index}0.pth'
 
 torch.save(best_gp, model_path)
 torch.save(scaler, scaler_path)
@@ -672,7 +679,7 @@ torch.save(scaler, scaler_path)
 #-----------------------------------------------------------------------------
 # PLOTS
 #-----------------------------------------------------------------------------
-end_indx = int(len(X)*0.8)
+end_indx = int(len(X)*0.4)
 fig, ax = plt.subplots(figsize=(12, 6))
 
 # Increase the size of the axis numbers

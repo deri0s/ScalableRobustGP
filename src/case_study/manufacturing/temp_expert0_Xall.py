@@ -81,15 +81,15 @@ date_time = dpm.adjust_time_lag(y_df['Time stamp'].values,
 
 # Train and test data
 N, D = np.shape(X)
-end_indx = int(len(X)*0.8)
+end_indx = int(len(X)*0.3)
 end_train = N - end_indx
 
 X_train = X[0:end_train]
 
 
 """ 2. Load trained experts """
-expert_path = os.path.join(EXPERT_PATH, f'expert{index}0.pth')
-scaler_path = os.path.join(EXPERT_PATH, f'scaler{index}0.pth')
+expert_path = os.path.join(EXPERT_PATH, f'expert00.pth')
+scaler_path = os.path.join(EXPERT_PATH, f'scaler00.pth')
     
 # Load train expert
 gp = torch.load(expert_path, weights_only=False)
