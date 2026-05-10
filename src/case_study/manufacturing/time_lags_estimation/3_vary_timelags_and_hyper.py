@@ -1,0 +1,397 @@
+import torch
+import time
+import gpytorch
+import pandas as pd
+import numpy as np
+from sklearn.metrics import mean_squared_error
+from sklearn.preprocessing import StandardScaler as ss
+from matplotlib import pyplot as plt
+from gpytorch.models import ExactGP
+from gpytorch.likelihoods import GaussianLikelihood
+from gpytorch.distributions import MultivariateNormal
+from gpytorch.means import ConstantMean
+from gpytorch.mlls import ExactMarginalLogLikelihood
+from gpytorch.kernels import InducingPointKernel, ScaleKernel, RBFKernel as RBF
+
+"""
+NSG data
+"""
+# NSG post processes data location
+file = 'validation_data.xlsx'
+
+# Training df
+X0_df  = pd.read_excel(file, sheet_name='X_stand')
+y0_df  = pd.read_excel(file, sheet_name='y_nonstand')
+t0_df = pd.read_excel('data_and_preprocessing/processed/finetune_timelags.xlsx')
+
+# drop tweel position
+X0_df.drop(columns='9282 Tweel Position', inplace=True)
+t0_df.drop(columns='9282 Tweel Position', inplace=True)
+
+# Pre-Process training data
+N, D = np.shape(X0_df.values)
+
+# Create tag inputs
+X = np.zeros([N, D])
+
+"""---------------------------------------------------------------------------
+    TIME LAGS
+------------------------------------------------------------------------------
+
+    Generate random timelags sampled from a Uniform distribution whose min,
+    max values were obtained using a Random Forest approach.
+
+    # Preliminary analsysis
+    min_list = []
+    max_list = []
+
+    for col in t0_df.columns:
+        min_list.append(t0_df[col].values.min())
+        max_list.append(t0_df[col].values.max())
+
+    print(f'Min timelag: {min(min_list)}')
+    print(f'Max timelag: {max(max_list)} \n')
+
+    3 days into the future corresponds to 216 units. Therefore,
+    min - 8 = 2
+    max + 8 = 216
+    max allowed boundary is 8 units. Just in case I will use 9 units
+"""
+# read TIME LAGS description for the details of the following
+timelags_df = pd.DataFrame()
+N_samples = 200
+units = 2
+
+# Initialise dictionary with the first input
+minimum = np.min(t0_df[t0_df.columns[0]] - units)
+maximum = np.max(t0_df[t0_df.columns[0]] + units)
+
+d = {t0_df.columns[0]:np.random.randint(minimum, maximum, N_samples)}
+
+# add remaining inputs
+for i in range(1, len(t0_df.columns)):
+    minimum = np.min(t0_df[t0_df.columns[i]] - units)
+    maximum = np.max(t0_df[t0_df.columns[i]] + units)
+    d[t0_df.columns[i]] = np.random.randint(minimum,
+                                            maximum,
+                                            N_samples)
+    
+t_df = pd.DataFrame(d)
+
+"""---------------------------------------------------------------------------
+    CREATE LAGGED FEATURES
+"""
+
+def align_inputs(x_df, y_df, t_series):
+    # ! Always close/Deep copy
+    xdeep = x_df.copy()
+    ydeep = y_df.copy()
+    max_lag = max(t_series)
+
+    # X
+    for name, lag in t_series.items():
+        xdeep[name] = xdeep[name].shift(lag)
+
+    xdeep.dropna(inplace=True)
+
+    # y and date-time
+    ydeep = ydeep.iloc[max_lag:].reset_index(drop=True)
+
+    return xdeep.reset_index(drop=True), ydeep
+
+"""----------------------------------------------------------------------------
+Sparse GP
+"""
+
+class SparseGP(ExactGP):
+    def __init__(self, train_x, train_y, likelihood, kernel, noise_var):
+        super(SparseGP, self).__init__(train_x, train_y, likelihood)
+        likelihood.noise = noise_var
+        self.mean_module = ConstantMean()
+        self.covar_module = kernel
+
+    def forward(self, x):
+        mean_x = self.mean_module(x)
+        covar_x = self.covar_module(x)
+        return MultivariateNormal(mean_x, covar_x)
+
+"""---------------------------------------------------------------------------
+    SIMULATIONS
+"""
+# Timelags initialisation
+step = 60
+timelag_list = []
+scaler = ss()
+
+# Hyper initialisation
+N_sim_hyper = 40
+init_ls = []
+init_nv = []
+os_list = []
+ls_list = []
+nv_list = []
+mse_list = []
+random = True
+
+start_time = time.time()
+for n in range(N_samples):
+    print(f'\nSim: {n}/{N_samples}')
+
+    # create lagged features
+    X_df, y_df = align_inputs(X0_df, y0_df, t_df.iloc[n,:])
+
+    """---------------------------------------------------------------------------
+        STANDARDISE TRAINING & TEST DATA
+    """
+
+    X = X_df.values
+    y_nonstand, date_time = y_df.gp_pred.values, y_df.date_time.values
+
+    N, D = np.shape(X)
+    end_train = N - int(len(y_nonstand)*0.12)
+
+    X_train_np = X[0:end_train]
+    date_train = date_time[0:end_train]
+    N_train = len(X_train_np)
+    y_train_nonstand = y_nonstand[0:end_train]
+
+    X_test = X[0:N]
+    date_time = date_time[0:N]
+
+    # Standardise outputs
+    y_train = y_train_nonstand.reshape(-1,1)
+    scaler.fit(y_train)
+    y_norm_np = scaler.transform(y_train)
+
+    # Convert data to torch tensors
+    floating_point = torch.float64
+    X_train = torch.tensor(X_train_np, dtype=floating_point)
+    y_train = torch.tensor(y_norm_np, dtype=floating_point).squeeze()
+    X_test = torch.tensor(X_test, dtype=floating_point)
+
+    """----------------------------------------------------------------------------
+    SIMULATION
+    """
+    # ! Always clone
+    inducing_points = X_train[::step, :].clone()
+
+    # Model
+    likelihood = GaussianLikelihood()
+    se = ScaleKernel(RBF(ard_num_dims=X_train.shape[-1]))
+    covar_module = InducingPointKernel(se,
+                                       inducing_points=inducing_points,
+                                       likelihood=likelihood)
+
+    for i in range(N_sim_hyper):
+        print(f'Hyperparameter simulation: {i}/{N_sim_hyper}')
+
+        if random:
+            ls = np.random.uniform(low=0.1, high=100, size=D)
+            nv = np.random.uniform(low=0.01, high=0.1)
+            # save initial hyperparameters
+            init_ls.append(ls)
+            init_nv.append(nv)
+        else:
+            # save initial hyperparameters
+            init_ls.append(ls.squeeze(0).detach().numpy())
+            init_nv.append(nv)
+
+        # GP object
+        gp = SparseGP(X_train, y_train, likelihood, covar_module, nv)
+        gp.covar_module.base_kernel.base_kernel.outputscale = 1
+        gp.covar_module.base_kernel.base_kernel.lengthscale = ls
+
+        # Train model
+        gp.train()
+        gp.likelihood.train()
+
+        optimizer = torch.optim.Adam(gp.parameters(), lr=0.01)
+        mll = ExactMarginalLogLikelihood(likelihood, gp)
+
+        training_iterations = 100
+        for count in range(training_iterations):
+            optimizer.zero_grad()
+            output = gp(X_train)
+            loss = -mll(output, y_train)
+            loss.backward()
+            optimizer.step()
+
+        # get the estimated hyperparameters
+        os = gp.covar_module.base_kernel.outputscale.item()
+        ls = gp.covar_module.base_kernel.base_kernel.lengthscale
+        nv = likelihood.noise.item()
+
+        # Predictions
+        gp.eval()
+        likelihood.eval()
+        with torch.no_grad(), gpytorch.settings.fast_pred_var():
+            observed_pred = likelihood(gp(X_test))
+
+            # Unormalise predictions
+            pred_mean = observed_pred.mean
+            mu = scaler.inverse_transform(pred_mean.unsqueeze(1))[:,0]
+            mse = mean_squared_error(mu, y_nonstand)
+
+            # collect results
+            timelag_list.append(t_df.iloc[n,:].values)
+            os_list.append(os)
+            ls_list.append(ls.squeeze(0).detach().numpy())
+            nv_list.append(nv)
+            mse_list.append(mse)
+
+            # check error
+            if i > 1:
+                if mse_list[i] < mse_list[i-1]:
+                    random = False
+                else:
+                    random = True
+
+sim_time = time.time() - start_time
+print(f'\nN = {int(N_samples*N_sim_hyper)} simulations in {sim_time} seconds')
+
+"""--------------------------------------------------------------------------
+    BEST HYPERPARAMETER CONFIGURATION
+"""
+
+d = {'step': step,
+     'init_os': np.ones(int(N_samples*N_sim_hyper)), 'init_ls': init_ls, 'init_nv': init_nv,
+     'outputscale': os_list,
+     'lengthscale': ls_list,
+     'noise_var': nv_list,
+     'mse': mse_list}
+
+df_sim = pd.DataFrame(d)
+
+# get index where the MSE is the lowest
+indx = df_sim[df_sim.mse == df_sim.mse.min()].index.values
+
+init_opt_ls = df_sim.init_ls[indx].values[0]
+init_opt_nv = df_sim.init_nv[indx].values[0]
+opt_os = df_sim.outputscale[indx].values[0]
+opt_ls = df_sim.lengthscale[indx].values[0]
+opt_nv = df_sim.noise_var[indx].values
+
+# create estimated time lag dataframe
+opt_timelags = timelag_list[indx[0]]
+opt_td = {'inputs': t_df.columns,
+          'timelags': opt_timelags,
+          'opt_os': opt_os,
+          'init_ls':  init_opt_ls,
+          'opt_ls': opt_ls,
+          'init_nv': np.ones(D)*init_opt_nv,
+          'opt_nv': np.ones(D)*opt_nv,
+          'step': np.ones(D)*step,
+          'MSE': np.ones(D)*mse}
+
+opt_timelags_df = pd.DataFrame(opt_td)
+opt_timelags_df.to_excel('5_finetuned_without_tweel.xlsx')
+
+print('\nmse: ', df_sim.mse[indx].values)
+
+# GP object
+gp = SparseGP(X_train, y_train, likelihood, covar_module, init_opt_nv)
+gp.covar_module.base_kernel.base_kernel.outputscale = 1
+gp.covar_module.base_kernel.base_kernel.lengthscale = init_opt_ls
+
+# Train model
+gp.train()
+gp.likelihood.train()
+
+optimizer = torch.optim.Adam(gp.parameters(), lr=0.01)
+mll = ExactMarginalLogLikelihood(likelihood, gp)
+
+training_iterations = 100
+for count in range(training_iterations):
+    optimizer.zero_grad()
+    output = gp(X_train)
+    loss = -mll(output, y_train)
+    loss.backward()
+    optimizer.step()
+
+# *Induced points
+init_z_indices = np.arange(0, len(X_train.numpy()), step)
+
+# Make sure the _z (induced inputs) are a subset of the X_train dataset
+_z = gp.covar_module.inducing_points.detach()
+
+_z_indices = []
+for z in _z:
+    distances = torch.norm(X_train - z, dim=1)
+    closest_index = torch.argmin(distances).item()
+    _z_indices.append(closest_index)
+
+# check the z0 and z* are not the same
+assert ~np.all(list(init_z_indices == _z_indices)), 'induced not trained'
+
+# Predictions
+gp.eval()
+likelihood.eval()
+with torch.no_grad(), gpytorch.settings.fast_pred_var():
+    observed_pred = likelihood(gp(X_test))
+
+# Unormalise predictions
+pred_mean = observed_pred.mean
+mu = scaler.inverse_transform(pred_mean.unsqueeze(1))[:,0]
+stds = scaler.inverse_transform(observed_pred.stddev.unsqueeze(1))[:,0]
+lower_stand, upper_stand = observed_pred.confidence_region()
+lower = scaler.inverse_transform(lower_stand.unsqueeze(1))[:,0]
+upper = scaler.inverse_transform(upper_stand.unsqueeze(1))[:,0]
+
+print('MSE: ', mean_squared_error(mu, y_nonstand))
+
+"""--------------------------------------------------------------------------
+PLOT
+"""
+
+plt.figure()
+plt.plot(mse_list)
+plt.xlabel('iteration')
+plt.xlabel('MSE')
+
+#-----------------------------------------------------------------------------
+# REGRESSION PLOT
+#-----------------------------------------------------------------------------
+fig, ax = plt.subplots()
+
+# Increase the size of the axis numbers
+plt.rcdefaults()
+plt.rc('xtick', labelsize=14)
+plt.rc('ytick', labelsize=14)
+fig.autofmt_xdate()
+
+plt.fill_between(date_time, lower, upper,
+                alpha=0.5, color='lightcoral',
+                label='2$\\sigma$')
+ax.plot(date_time, y_nonstand, '*', color='green', label='Val')
+ax.plot(date_time, mu, color='red', label='GP')
+plt.axvline(date_time[end_train-1], linestyle='--', linewidth=3,
+        color='black')
+ax.set_xlabel(" Date-time", fontsize=14)
+ax.set_ylabel(" Fault density", fontsize=14)
+plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
+
+ax.vlines(
+    x=date_time[::step],
+    ymin=-2*stds.min(),
+    ymax=y_train.max().item(),
+    alpha=0.3,
+    linewidth=1.5,
+    ls='--',
+    label="z0",
+    color='grey'
+)
+
+# Induced points
+ax.vlines(
+    x=date_time[_z_indices],
+    ymin=-2*stds.min(),
+    ymax=y_train.max().item(),
+    alpha=0.4,
+    linewidth=1.5,
+    label="z*",
+    color='orange'
+)
+ax.set_xlabel(" Date-time", fontsize=14)
+ax.set_ylabel(" Fault density", fontsize=14)
+plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
+plt.show()
