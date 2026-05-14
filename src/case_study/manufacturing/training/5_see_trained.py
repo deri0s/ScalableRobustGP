@@ -70,7 +70,7 @@ def get_hyper(gp):
 
     if hasattr(gp.covar_module.base_kernel, "kernels"):  # Additive kernel
         results["kernel_type"] = "additive"
-        results[f"outputscale"] = gp.covar_module.outputscale.item()
+        results["outputscale"] = gp.covar_module.outputscale.item()
         for i, k in enumerate(gp.covar_module.base_kernel.kernels):
             results[f"kernel_{i}_name"] = k.__class__.__name__
             if hasattr(k, "lengthscale"):

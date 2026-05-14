@@ -15,7 +15,7 @@ NSG data
 Do not adjust data for timelags.
 """
 
-data_index = 4
+data_index = 0
 # NSG post processes data location
 ROOT_PATH = Path(__file__).resolve().parent.parent
 PROCESSED_PATH = ROOT_PATH / "data" / "processed" / "Training_data_partitions"
@@ -71,7 +71,7 @@ def align_inputs(x_df, y_df, t_series):
 def get_hyper(gp):
     """Extract hyperparameters based on kernel type"""
     results = {}
-    results[f"outputscale"] = gp.covar_module.outputscale.item()
+    results["outputscale"] = gp.covar_module.outputscale.item()
     if hasattr(gp.covar_module.base_kernel, "kernels"):  # Additive kernel
         results["kernel_type"] = "additive"
         for i, k in enumerate(gp.covar_module.base_kernel.kernels):
@@ -178,6 +178,7 @@ if hyperparams0["kernel_type"] == "additive":
         )
         print(feature_importance.sort_values(by="lengthscales"))
 else:
+    print(f"\nInputs: f{X_df.shape}, hyper: {len(hyperparams0)}")
     feature_importance = pd.DataFrame(
         {"inputs": X_df.columns.values, "lengthscales": hyperparams0["lengthscales"]}
     )

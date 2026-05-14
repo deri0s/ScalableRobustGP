@@ -15,7 +15,7 @@ from sklearn.decomposition import PCA
 """
 NSG data
 """
-index = 0
+index = 1
 ROOT_PATH = Path(__file__).resolve().parent.parent
 PROCESSED_PATH = ROOT_PATH / "manufacturing" / "data" / "processed"
 EXPERT_PATH = ROOT_PATH / "manufacturing" / "trained" / "experts"
@@ -50,7 +50,7 @@ t_df = pd.read_excel(file, sheet_name='timelags')
 #     dropped_path = os.path.join(EXPERT_PATH, f'dropped_inputs{index}.yaml')
 #     with open(dropped_path, 'r') as f:
 #         dropped = yaml.load(f, Loader=yaml.SafeLoader)
-    
+
 #     for input in dropped['to_drop']:
 #         X_df.drop(columns=input, inplace=True)
 #         t_df.drop(columns=input, inplace=True)
@@ -90,7 +90,7 @@ X_train = X[0:end_train]
 """ 2. Load trained experts """
 expert_path = os.path.join(EXPERT_PATH, f'expert00.pth')
 scaler_path = os.path.join(EXPERT_PATH, f'scaler00.pth')
-    
+
 # Load train expert
 gp = torch.load(expert_path, weights_only=False)
 scaler = torch.load(scaler_path, weights_only=False)
@@ -139,7 +139,7 @@ ax.fill_between(date_time,
                 label='Confidence \nBounds (DRGPs)')
 ax.plot(date_time, y_raw[0:N], color='grey', label='Raw')
 ax.plot(date_time, mu, color="red", linewidth = 2.5, label="DRGPs")
-    
+
 plt.axvline(date_time[-1], linestyle='--', linewidth=3,
             color='black')
 ax.set_xlabel(" Date-time", fontsize=14)
@@ -158,7 +158,7 @@ plt.legend(loc=0, prop={"size":18}, facecolor="white", framealpha=1.0)
 
 # # PCA on test data
 # Xt_test = pca.transform(X_test)
-    
+
 # # Plot at each 1000 points
 # fig, ax = plt.subplots()
 # ax.plot(Xt[:, 0], Xt[:, 1], 'o', markersize=0.9, c='grey',
